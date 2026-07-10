@@ -237,7 +237,10 @@ Pressing Return in the search field follows this order:
 3. Otherwise, if the trimmed query is non-empty, create a note with that query as its title and an empty body, then focus its editor.
 4. Otherwise, do nothing.
 
-Creating from a query MUST clear the query after creation and select the new note.
+Creating from a query MUST retain the new note's committed title in the field,
+retain the corresponding filtered result set, select the new note, and focus its
+editor. Creation MUST NOT briefly expand to the unfiltered library or restore an
+unrelated pre-search list offset.
 
 ### 6.8 Escape and deselection
 

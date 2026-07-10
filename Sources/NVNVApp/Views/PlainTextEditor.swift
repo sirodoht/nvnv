@@ -28,12 +28,13 @@ struct PlainTextEditor: NSViewRepresentable {
     let softTabs: Bool
     let tabWidth: Int
     let tabIndents: Bool
-    let focusGeneration: Int
+    let focusRequest: EditorFocusRequest?
     let command: EditorCommand?
     let commandGeneration: Int
     let undoRegistry: EditorUndoRegistry
     let onChange: (String) -> Void
     let onSelectionChange: (NSRange) -> Void
+    let onFocusRequestHandled: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -82,9 +83,16 @@ struct PlainTextEditor: NSViewRepresentable {
             coordinator.pushingState = false
         }
         applyHighlights(text)
-        if coordinator.lastFocusGeneration != focusGeneration {
-            coordinator.lastFocusGeneration = focusGeneration
-            DispatchQueue.main.async { text.window?.makeFirstResponder(text) }
+        if let focusRequest,
+           focusRequest.noteID == note.id,
+           coordinator.lastFocusRequestID != focusRequest.id {
+            coordinator.lastFocusRequestID = focusRequest.id
+            let handled = onFocusRequestHandled
+            DispatchQueue.main.async {
+                if text.window?.makeFirstResponder(text) == true {
+                    handled(focusRequest.id)
+                }
+            }
         }
         if coordinator.lastCommandGeneration != commandGeneration {
             coordinator.lastCommandGeneration = commandGeneration
@@ -105,10 +113,13 @@ struct PlainTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: PlainTextEditor
         var pushingState = false
-        var lastFocusGeneration = -1
-        var lastCommandGeneration = -1
+        var lastFocusRequestID: UUID?
+        var lastCommandGeneration: Int
 
-        init(parent: PlainTextEditor) { self.parent = parent }
+        init(parent: PlainTextEditor) {
+            self.parent = parent
+            lastCommandGeneration = parent.commandGeneration
+        }
 
         func textDidChange(_ notification: Notification) {
             guard !pushingState, let text = notification.object as? NSTextView else { return }

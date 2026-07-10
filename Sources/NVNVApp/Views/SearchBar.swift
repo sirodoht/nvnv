@@ -8,7 +8,13 @@ struct SearchBar: View {
         HStack(spacing: 8) {
             Image(systemName: model.isRenaming ? "pencil" : "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField(model.isRenaming ? "Rename Note" : "Search notes or enter a new title", text: $model.searchText)
+            TextField(
+                model.isRenaming ? "Rename Note" : "Search notes or enter a new title",
+                text: Binding(
+                    get: { model.searchText },
+                    set: { model.userEnteredSearchText($0) }
+                )
+            )
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onSubmit { Task { await model.submitSearch() } }

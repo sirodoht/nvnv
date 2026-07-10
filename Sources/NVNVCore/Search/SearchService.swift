@@ -15,6 +15,12 @@ public struct SearchResult: Identifiable, Hashable, Sendable {
     public var id: UUID { note.id }
 }
 
+public enum SearchSubmitAction: Equatable, Sendable {
+    case open(UUID)
+    case create(String)
+    case none
+}
+
 public enum SearchService {
     public static func search(_ query: SearchQuery, in notes: [Note], sort: NoteSort) -> [SearchResult] {
         notes.compactMap { result(for: $0, query: query) }.sorted { compare($0.note, $1.note, sort: sort) }
@@ -51,6 +57,19 @@ public enum SearchService {
                 return compare($0.note, $1.note, sort: sort)
             }
             .first?.id
+    }
+
+    public static func submitAction(
+        query: String, results: [SearchResult], explicitSelectionID: UUID?, sort: NoteSort
+    ) -> SearchSubmitAction {
+        if let explicitSelectionID, results.contains(where: { $0.id == explicitSelectionID }) {
+            return .open(explicitSelectionID)
+        }
+        if let automatic = automaticMatch(query: query, results: results, sort: sort) {
+            return .open(automatic)
+        }
+        let title = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? .none : .create(title)
     }
 
     public static func compare(_ lhs: Note, _ rhs: Note, sort: NoteSort) -> Bool {

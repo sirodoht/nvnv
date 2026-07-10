@@ -21,12 +21,13 @@ struct EditorPane: View {
                     softTabs: model.softTabs,
                     tabWidth: model.tabWidth,
                     tabIndents: model.tabIndents,
-                    focusGeneration: model.focusEditorGeneration,
+                    focusRequest: model.editorFocusRequest,
                     command: model.editorCommand,
                     commandGeneration: model.editorCommandGeneration,
                     undoRegistry: undoRegistry,
                     onChange: model.updateBody,
-                    onSelectionChange: model.updateSelection
+                    onSelectionChange: model.updateSelection,
+                    onFocusRequestHandled: model.consumeEditorFocusRequest
                 )
                 .id(note.id)
             }

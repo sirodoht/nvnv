@@ -30,7 +30,8 @@ final class AppModel {
     var isConflictPresented = false
     var isRenaming = false
     var focusSearchGeneration = 0
-    var focusEditorGeneration = 0
+    var editorFocusRequest: EditorFocusRequest?
+    var listScrollRequest: ListScrollRequest?
     var dividerFraction = 0.36 { didSet { persistSettingsSoon() } }
     var showModifiedDate = true { didSet { persistSettingsSoon() } }
     var showCreatedDate = false { didSet { persistSettingsSoon() } }
@@ -189,22 +190,32 @@ final class AppModel {
         let start = current ?? (offset > 0 ? -1 : results.count)
         let target = min(max(start + offset, 0), results.count - 1)
         select([results[target].id])
+        requestListScroll(to: results[target].id)
+    }
+
+    func userEnteredSearchText(_ value: String) {
+        if !isRenaming, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            selectionKind = .none
+        }
+        searchText = value
     }
 
     func submitSearch() async {
         if isRenaming { await commitRename(); return }
-        if selectionKind == .explicit, selectedNote != nil {
-            focusEditorGeneration += 1
-            return
+        let currentResults = SearchService.search(SearchQuery(query), in: notes, sort: sort)
+        let explicitID = selectionKind == .explicit ? selection.first : nil
+        switch SearchService.submitAction(
+            query: query, results: currentResults, explicitSelectionID: explicitID, sort: sort
+        ) {
+        case .open(let id):
+            if selection != [id] { select([id], explicitly: true) }
+            requestListScroll(to: id)
+            requestEditorFocus()
+        case .create(let title):
+            await createNote(title: title)
+        case .none:
+            break
         }
-        if let match = SearchService.automaticMatch(query: query, results: results, sort: sort) {
-            select([match], explicitly: true)
-            focusEditorGeneration += 1
-            return
-        }
-        let title = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return }
-        await createNote(title: title)
     }
 
     func clearOrCancel() {
@@ -224,7 +235,18 @@ final class AppModel {
     }
 
     func focusSearch() {
+        editorFocusRequest = nil
         focusSearchGeneration += 1
+    }
+
+    func consumeEditorFocusRequest(_ id: UUID) {
+        guard editorFocusRequest?.id == id else { return }
+        editorFocusRequest = nil
+    }
+
+    func consumeListScrollRequest(_ id: UUID) {
+        guard listScrollRequest?.id == id else { return }
+        listScrollRequest = nil
     }
 
     func startRename() {
@@ -401,10 +423,27 @@ final class AppModel {
             notes.append(note)
             baseBodies[note.id] = ""
             try? cache?.upsert(note)
-            searchText = ""
-            select([note.id], explicitly: true)
-            focusEditorGeneration += 1
+            let previousQuery = query
+            let previousSelection = selection
+            navigationHistory.append((previousQuery, previousSelection))
+            priorExplicitQuery = previousQuery
+            searchText = note.title
+            refreshSearchImmediately()
+            selection = [note.id]
+            selectionKind = .explicit
+            persistSettingsSoon()
+            requestListScroll(to: note.id)
+            requestEditorFocus()
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func requestEditorFocus() {
+        guard let noteID = selection.first else { return }
+        editorFocusRequest = EditorFocusRequest(noteID: noteID)
+    }
+
+    private func requestListScroll(to noteID: UUID) {
+        listScrollRequest = ListScrollRequest(noteID: noteID)
     }
 
     private func commitRename() async {
@@ -467,6 +506,11 @@ final class AppModel {
                 }
             }
         }
+    }
+
+    private func refreshSearchImmediately() {
+        searchGeneration += 1
+        results = SearchService.search(SearchQuery(query), in: notes, sort: sort)
     }
 
     private func scheduleJournal(for note: Note) {
@@ -680,4 +724,14 @@ enum EditorCommand {
     case findNext
     case findPrevious
     case openURL
+}
+
+struct EditorFocusRequest: Equatable {
+    let id = UUID()
+    let noteID: UUID
+}
+
+struct ListScrollRequest: Equatable {
+    let id = UUID()
+    let noteID: UUID
 }

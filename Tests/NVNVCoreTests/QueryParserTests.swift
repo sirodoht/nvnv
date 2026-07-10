@@ -45,4 +45,26 @@ struct QueryParserTests {
         #expect(SearchService.automaticMatch(query: "project", results: results, sort: .init()) == notes[1].id)
         #expect(SearchService.automaticMatch(query: "pro", results: results, sort: .init()) == notes[1].id)
     }
+
+    @Test func returnOpensCurrentMatchOrCreatesUnmatchedTitle() {
+        let note = Note(title: "Timeline", body: "history", filename: "Timeline.txt")
+        let matching = SearchService.search(SearchQuery("time"), in: [note], sort: .init())
+        #expect(SearchService.submitAction(query: "time", results: matching, explicitSelectionID: nil, sort: .init()) == .open(note.id))
+        #expect(SearchService.submitAction(query: "Fresh Note", results: [], explicitSelectionID: nil, sort: .init()) == .create("Fresh Note"))
+        #expect(SearchService.submitAction(query: "  ", results: [], explicitSelectionID: nil, sort: .init()) == .none)
+    }
+
+    @Test func returnIgnoresAnExplicitSelectionThatIsNotInCurrentResults() {
+        let staleID = UUID()
+        #expect(SearchService.submitAction(
+            query: "Brand New", results: [], explicitSelectionID: staleID, sort: .init()
+        ) == .create("Brand New"))
+    }
+
+    @Test func newlyCreatedExactTitleAppearsWithoutClearingItsFilter() {
+        let query = SearchQuery("Brand New")
+        #expect(SearchService.search(query, in: [], sort: .init()).isEmpty)
+        let created = Note(title: "Brand New", body: "", filename: "Brand New.txt")
+        #expect(SearchService.search(query, in: [created], sort: .init()).map(\.id) == [created.id])
+    }
 }

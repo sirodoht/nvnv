@@ -5,38 +5,55 @@ struct NoteListView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        List(selection: Binding(
-            get: { model.selection },
-            set: { model.select($0) }
-        )) {
-            ForEach(model.results) { result in
-                NoteRow(
-                    note: result.note,
-                    showExcerpt: model.showExcerpts,
-                    showModified: model.showModifiedDate,
-                    showCreated: model.showCreatedDate,
-                    duplicateTitle: duplicateTitles.contains(TextNormalizer.normalize(result.note.title)),
-                    fontSize: model.listFontSize
-                )
-                .tag(result.id)
-                .contextMenu {
-                    Button("Rename") { model.startRename() }
-                        .disabled(model.isReadOnly)
-                    Button("Show in Finder") { model.revealSelectedNote() }
-                    Divider()
-                    Button("Move to Trash", role: .destructive) { Task { await model.deleteSelection() } }
-                        .disabled(model.isReadOnly)
+        ScrollViewReader { proxy in
+            List(selection: Binding(
+                get: { nativeSelection },
+                set: { ids in
+                    guard ids != nativeSelection else { return }
+                    model.select(ids)
+                }
+            )) {
+                ForEach(model.results) { result in
+                    NoteRow(
+                        note: result.note,
+                        showExcerpt: model.showExcerpts,
+                        showModified: model.showModifiedDate,
+                        showCreated: model.showCreatedDate,
+                        duplicateTitle: duplicateTitles.contains(TextNormalizer.normalize(result.note.title)),
+                        fontSize: model.listFontSize
+                    )
+                    .id(result.id)
+                    .tag(result.id)
+                    .listRowBackground(
+                        model.selectionKind == .automatic && model.selection.contains(result.id)
+                            ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.28)
+                            : Color.clear
+                    )
+                    .contextMenu {
+                        Button("Rename") { model.startRename() }
+                            .disabled(model.isReadOnly)
+                        Button("Show in Finder") { model.revealSelectedNote() }
+                        Divider()
+                        Button("Move to Trash", role: .destructive) { Task { await model.deleteSelection() } }
+                            .disabled(model.isReadOnly)
+                    }
                 }
             }
-        }
-        .listStyle(.inset)
-        .overlay {
-            if model.results.isEmpty {
-                ContentUnavailableView(
-                    model.query.isEmpty ? "No Notes" : "No Matches",
-                    systemImage: model.query.isEmpty ? "note.text" : "magnifyingglass",
-                    description: Text(model.query.isEmpty ? "Type a title above and press Return to create a note." : "Press Return to create “\(model.query)” as a note.")
-                )
+            .listStyle(.inset)
+            .overlay {
+                if model.results.isEmpty {
+                    ContentUnavailableView(
+                        model.query.isEmpty ? "No Notes" : "No Matches",
+                        systemImage: model.query.isEmpty ? "note.text" : "magnifyingglass",
+                        description: Text(model.query.isEmpty ? "Type a title above and press Return to create a note." : "Press Return to create “\(model.query)” as a note.")
+                    )
+                }
+            }
+            .onChange(of: model.listScrollRequest) { _, _ in
+                fulfillScrollRequest(using: proxy)
+            }
+            .onChange(of: model.results.map(\.id)) { _, _ in
+                fulfillScrollRequest(using: proxy)
             }
         }
     }
@@ -44,6 +61,19 @@ struct NoteListView: View {
     private var duplicateTitles: Set<String> {
         let grouped = Dictionary(grouping: model.notes, by: { TextNormalizer.normalize($0.title) })
         return Set(grouped.filter { $0.value.count > 1 }.map(\.key))
+    }
+
+    private var nativeSelection: Set<UUID> {
+        model.selectionKind == .explicit ? model.selection : []
+    }
+
+    private func fulfillScrollRequest(using proxy: ScrollViewProxy) {
+        guard let request = model.listScrollRequest,
+              model.results.contains(where: { $0.id == request.noteID }) else { return }
+        DispatchQueue.main.async {
+            proxy.scrollTo(request.noteID, anchor: .top)
+            model.consumeListScrollRequest(request.id)
+        }
     }
 }
 
