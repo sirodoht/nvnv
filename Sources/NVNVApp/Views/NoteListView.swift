@@ -16,10 +16,11 @@ struct NoteListView: View {
                 ForEach(model.results) { result in
                     NoteRow(
                         note: result.note,
+                        excerpt: result.excerpt,
                         showExcerpt: model.showExcerpts,
                         showModified: model.showModifiedDate,
                         showCreated: model.showCreatedDate,
-                        duplicateTitle: duplicateTitles.contains(TextNormalizer.normalize(result.note.title)),
+                        duplicateTitle: model.duplicateTitleKeys.contains(TextNormalizer.normalize(result.note.title)),
                         fontSize: model.listFontSize
                     )
                     .id(result.id)
@@ -58,11 +59,6 @@ struct NoteListView: View {
         }
     }
 
-    private var duplicateTitles: Set<String> {
-        let grouped = Dictionary(grouping: model.notes, by: { TextNormalizer.normalize($0.title) })
-        return Set(grouped.filter { $0.value.count > 1 }.map(\.key))
-    }
-
     private var nativeSelection: Set<UUID> {
         model.selectionKind == .explicit ? model.selection : []
     }
@@ -79,6 +75,7 @@ struct NoteListView: View {
 
 private struct NoteRow: View {
     let note: Note
+    let excerpt: String
     let showExcerpt: Bool
     let showModified: Bool
     let showCreated: Bool
@@ -102,20 +99,16 @@ private struct NoteRow: View {
             if showCreated {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text("Created").font(.caption2).foregroundStyle(.tertiary)
-                    Text(note.createdAt, style: .relative).font(.caption).foregroundStyle(.secondary)
+                    Text(note.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
                 }
             }
             if showModified {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text("Modified").font(.caption2).foregroundStyle(.tertiary)
-                    Text(note.modifiedAt, style: .relative).font(.caption).foregroundStyle(.secondary)
+                    Text(note.modifiedAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
         .padding(.vertical, showExcerpt ? 4 : 1)
-    }
-
-    private var excerpt: String {
-        note.body.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
     }
 }

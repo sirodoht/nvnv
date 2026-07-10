@@ -3,3 +3,4 @@ dist/
 .swiftpm/
 *.xcuserstate
 .DS_Store
+nvalt/

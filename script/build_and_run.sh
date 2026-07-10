@@ -5,6 +5,11 @@ MODE="${1:-run}"
 APP_NAME="nvnv"
 BUNDLE_ID="app.nvnv"
 MIN_SYSTEM_VERSION="15.0"
+CONFIGURATION="${NVNV_BUILD_CONFIGURATION:-release}"
+
+if [[ "$MODE" == "--debug" || "$MODE" == "debug" ]]; then
+  CONFIGURATION="debug"
+fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -16,8 +21,8 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-swift build --product "$APP_NAME"
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build -c "$CONFIGURATION" --product "$APP_NAME"
+BUILD_BINARY="$(swift build -c "$CONFIGURATION" --show-bin-path)/$APP_NAME"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"

@@ -75,14 +75,20 @@ struct PlainTextEditor: NSViewRepresentable {
         text.isSelectable = true
         text.sessionUndoManager = undoRegistry.manager(for: note.id)
         let chosen = fontName.isEmpty ? nil : NSFont(name: fontName, size: fontSize)
-        text.font = chosen ?? NSFont.systemFont(ofSize: fontSize)
+        let desiredFont = chosen ?? NSFont.systemFont(ofSize: fontSize)
+        if text.font != desiredFont { text.font = desiredFont }
         if text.string != note.body {
             coordinator.pushingState = true
             text.string = note.body
             text.setSelectedRange(note.clampedSelection)
             coordinator.pushingState = false
         }
-        applyHighlights(text)
+        if coordinator.lastMatchRanges != matchRanges ||
+            (!matchRanges.isEmpty && coordinator.lastHighlightedRevision != note.revision) {
+            applyHighlights(text)
+            coordinator.lastMatchRanges = matchRanges
+            coordinator.lastHighlightedRevision = note.revision
+        }
         if let focusRequest,
            focusRequest.noteID == note.id,
            coordinator.lastFocusRequestID != focusRequest.id {
@@ -115,6 +121,8 @@ struct PlainTextEditor: NSViewRepresentable {
         var pushingState = false
         var lastFocusRequestID: UUID?
         var lastCommandGeneration: Int
+        var lastMatchRanges: [NSRange]?
+        var lastHighlightedRevision = -1
 
         init(parent: PlainTextEditor) {
             self.parent = parent

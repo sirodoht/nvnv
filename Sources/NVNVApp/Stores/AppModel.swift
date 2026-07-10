@@ -10,7 +10,7 @@ final class AppModel {
     var libraryURL: URL?
     var notes: [Note] = []
     var results: [SearchResult] = []
-    var selection: Set<UUID> = []
+    var selection: Set<UUID> = [] { didSet { scheduleWordCount() } }
     var selectionKind: SelectionKind = .none
     var searchText = "" {
         didSet { if !isRenaming { query = searchText } }
@@ -36,7 +36,7 @@ final class AppModel {
     var showModifiedDate = true { didSet { persistSettingsSoon() } }
     var showCreatedDate = false { didSet { persistSettingsSoon() } }
     var showExcerpts = true { didSet { persistSettingsSoon() } }
-    var showWordCount = true { didSet { persistSettingsSoon() } }
+    var showWordCount = true { didSet { scheduleWordCount(); persistSettingsSoon() } }
     var confirmDeletion = true { didSet { persistSettingsSoon() } }
     var highlightSearch = true { didSet { persistSettingsSoon() } }
     var listFontSize = 13.0 { didSet { persistSettingsSoon() } }
@@ -49,6 +49,8 @@ final class AppModel {
     var defaultExtension = "txt" { didSet { persistSettingsSoon() } }
     var editorCommand: EditorCommand?
     var editorCommandGeneration = 0
+    private(set) var duplicateTitleKeys: Set<String> = []
+    private(set) var currentWordCount: Int?
 
     private let logger = Logger(subsystem: "app.nvnv", category: "library")
     private let scanner = LibraryScanner()
@@ -58,15 +60,26 @@ final class AppModel {
     private var settingsRepository: SettingsRepository?
     private var libraryLock: LibraryLock?
     private var watcher: DirectoryWatcher?
+    private var reconcileGeneration = 0
     private var searchGeneration = 0
+    private var searchTask: Task<Void, Never>?
+    private var visibleResultTask: Task<Void, Never>?
+    private var searchDocuments: [UUID: SearchDocument] = [:]
+    private var staleSearchDocumentIDs: Set<UUID> = []
     private var saveTasks: [UUID: Task<Void, Never>] = [:]
     private var deadlineTasks: [UUID: Task<Void, Never>] = [:]
+    private var journalTasks: [UUID: Task<Void, Never>] = [:]
+    private var journalDeadlineTasks: [UUID: Task<Void, Never>] = [:]
+    private var journalOperations: [UUID: Task<Void, Never>] = [:]
+    private var journalOperationIDs: [UUID: UUID] = [:]
+    private var lastJournaledRevision: [UUID: Int] = [:]
     private var journalIDs: [UUID: UUID] = [:]
     private var baseBodies: [UUID: String] = [:]
     private var dirtyNoteIDs: Set<UUID> = []
     private var renameOriginalQuery = ""
     private var priorExplicitQuery: String?
     private var settingsTask: Task<Void, Never>?
+    private var wordCountTask: Task<Void, Never>?
     private var navigationHistory: [(String, Set<UUID>)] = []
 
     var selectedNote: Note? {
@@ -80,8 +93,7 @@ final class AppModel {
     }
 
     var wordCount: Int? {
-        guard showWordCount, let body = selectedNote?.body else { return nil }
-        return body.split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }.count
+        showWordCount ? currentWordCount : nil
     }
 
     var recognizedExtensions: Set<String> {
@@ -155,6 +167,9 @@ final class AppModel {
             self.settingsRepository = settingsRepository
             self.journal = writable ? try RecoveryJournal(directory: auxiliary.appendingPathComponent("journal")) : nil
             self.notes = scan.notes
+            self.searchDocuments = Dictionary(uniqueKeysWithValues: scan.notes.map { ($0.id, SearchDocument(note: $0)) })
+            self.staleSearchDocumentIDs.removeAll()
+            recomputeDuplicateTitleKeys()
             self.baseBodies = Dictionary(uniqueKeysWithValues: scan.notes.map { ($0.id, $0.body) })
             self.scanIssues = scan.issues
             selection = settings.selectedNoteIDs.intersection(Set(notes.map(\.id)))
@@ -181,6 +196,7 @@ final class AppModel {
         }
         selection = ids.intersection(Set(results.map(\.id)))
         selectionKind = selection.isEmpty ? .none : (explicitly ? .explicit : .automatic)
+        populateSelectedHighlightRanges()
         persistSettingsSoon()
     }
 
@@ -202,19 +218,21 @@ final class AppModel {
 
     func submitSearch() async {
         if isRenaming { await commitRename(); return }
-        let currentResults = SearchService.search(SearchQuery(query), in: notes, sort: sort)
+        let parsed = SearchQuery(query)
         let explicitID = selectionKind == .explicit ? selection.first : nil
-        switch SearchService.submitAction(
-            query: query, results: currentResults, explicitSelectionID: explicitID, sort: sort
-        ) {
-        case .open(let id):
+        let validExplicitID = explicitID.flatMap { id in
+            searchDocuments[id].flatMap { SearchService.result(for: $0, query: parsed) } == nil ? nil : id
+        }
+        let automaticID = SearchService.automaticMatch(
+            query: query, documents: Array(searchDocuments.values), sort: sort
+        )
+        if let id = validExplicitID ?? automaticID {
             if selection != [id] { select([id], explicitly: true) }
             requestListScroll(to: id)
             requestEditorFocus()
-        case .create(let title):
+        } else if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let title = query.trimmingCharacters(in: .whitespacesAndNewlines)
             await createNote(title: title)
-        case .none:
-            break
         }
     }
 
@@ -263,10 +281,12 @@ final class AppModel {
         notes[index].body = body
         notes[index].modifiedAt = .now
         notes[index].revision += 1
+        staleSearchDocumentIDs.insert(id)
         dirtyNoteIDs.insert(id)
-        refreshSearch()
+        updateVisibleResult(for: notes[index])
         scheduleJournal(for: notes[index])
         scheduleSave(for: id)
+        scheduleWordCount()
     }
 
     func updateSelection(_ range: NSRange) {
@@ -288,15 +308,17 @@ final class AppModel {
         }
         guard let repository else { return }
         let ids = selection
-        for id in ids {
+            for id in ids {
             guard let note = notes.first(where: { $0.id == id }) else { continue }
             do {
                 _ = try await repository.trash(note: note)
                 notes.removeAll { $0.id == id }
+                searchDocuments[id] = nil
                 try? cache?.remove(id: id)
             } catch { errorMessage = error.localizedDescription }
         }
         selection = []
+        recomputeDuplicateTitleKeys()
         refreshSearch()
     }
 
@@ -340,10 +362,12 @@ final class AppModel {
         notes[index].body = conflict.fileBody
         notes[index].lastSavedHash = conflict.fileHash
         notes[index].revision += 1
+        searchDocuments[conflict.noteID] = SearchDocument(note: notes[index])
+        staleSearchDocumentIDs.remove(conflict.noteID)
         baseBodies[conflict.noteID] = conflict.fileBody
         dirtyNoteIDs.remove(conflict.noteID)
         self.conflict = nil
-        try? cache?.upsert(notes[index])
+        scheduleCacheUpsert(notes[index])
         refreshSearch()
     }
 
@@ -356,10 +380,12 @@ final class AppModel {
                 notes[index].lastSavedHash = hash
                 notes[index].modifiedAt = date
                 notes[index].fileIdentity = identity
+                searchDocuments[conflict.noteID] = SearchDocument(note: notes[index])
+                staleSearchDocumentIDs.remove(conflict.noteID)
                 baseBodies[conflict.noteID] = notes[index].body
                 dirtyNoteIDs.remove(conflict.noteID)
                 self.conflict = nil
-                try? cache?.upsert(notes[index])
+                scheduleCacheUpsert(notes[index])
             case .conflict(let data, let hash):
                 self.conflict = makeConflict(note: notes[index], data: data, hash: hash)
             }
@@ -391,13 +417,18 @@ final class AppModel {
             notes[index].body = conflict.fileBody
             notes[index].lastSavedHash = conflict.fileHash
             notes[index].revision += 1
+            searchDocuments[notes[index].id] = SearchDocument(note: notes[index])
+            staleSearchDocumentIDs.remove(notes[index].id)
             baseBodies[notes[index].id] = conflict.fileBody
             notes.append(copy)
+            searchDocuments[copy.id] = SearchDocument(note: copy)
+            staleSearchDocumentIDs.remove(copy.id)
+            recomputeDuplicateTitleKeys()
             baseBodies[copy.id] = copy.body
             dirtyNoteIDs.remove(appVersion.id)
             self.conflict = nil
-            try? cache?.upsert(notes[index])
-            try? cache?.upsert(copy)
+            scheduleCacheUpsert(notes[index])
+            scheduleCacheUpsert(copy)
             select([copy.id], explicitly: true)
             refreshSearch()
         } catch { errorMessage = error.localizedDescription }
@@ -405,6 +436,11 @@ final class AppModel {
 
     func flushAll() async throws {
         settingsTask?.cancel()
+        for task in journalTasks.values { task.cancel() }
+        for task in journalDeadlineTasks.values { task.cancel() }
+        journalTasks.removeAll()
+        journalDeadlineTasks.removeAll()
+        for id in Array(dirtyNoteIDs) { await writeJournalNow(id) }
         for task in saveTasks.values { task.cancel() }
         saveTasks.removeAll()
         for id in Array(dirtyNoteIDs) { await save(id) }
@@ -421,14 +457,17 @@ final class AppModel {
             guard case .saved(let hash, let date, let identity) = result else { return }
             let note = Note(title: URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent, body: "", createdAt: date, modifiedAt: date, filename: filename, lastSavedHash: hash, fileIdentity: identity)
             notes.append(note)
+            searchDocuments[note.id] = SearchDocument(note: note)
+            staleSearchDocumentIDs.remove(note.id)
+            recomputeDuplicateTitleKeys()
             baseBodies[note.id] = ""
-            try? cache?.upsert(note)
+            scheduleCacheUpsert(note)
             let previousQuery = query
             let previousSelection = selection
             navigationHistory.append((previousQuery, previousSelection))
             priorExplicitQuery = previousQuery
             searchText = note.title
-            refreshSearchImmediately()
+            insertResultForCurrentQuery(note)
             selection = [note.id]
             selectionKind = .explicit
             persistSettingsSoon()
@@ -465,7 +504,10 @@ final class AppModel {
             notes[index].revision += 1
             let data = try await repository.data(for: filename)
             notes[index].lastSavedHash = Hashing.sha256(data)
-            try? cache?.upsert(notes[index])
+            searchDocuments[note.id] = SearchDocument(note: notes[index])
+            staleSearchDocumentIDs.remove(note.id)
+            recomputeDuplicateTitleKeys()
+            scheduleCacheUpsert(notes[index])
             isRenaming = false
             searchText = renameOriginalQuery
             query = renameOriginalQuery
@@ -487,46 +529,194 @@ final class AppModel {
         searchGeneration += 1
         let generation = searchGeneration
         let query = SearchQuery(query)
-        let notes = notes
+        let cachedDocuments = searchDocuments
+        let staleNotes = notes.filter { staleSearchDocumentIDs.contains($0.id) }
         let sort = sort
-        Task.detached(priority: .userInitiated) {
-            let found = SearchService.search(query, in: notes, sort: sort)
-            await MainActor.run {
-                guard self.searchGeneration == generation else { return }
-                self.results = found
-                let available = Set(found.map(\.id))
-                if self.selectionKind == .explicit {
-                    self.selection.formIntersection(available)
-                } else if let automatic = SearchService.automaticMatch(query: query.rawValue, results: found, sort: sort) {
-                    self.selection = [automatic]
-                    self.selectionKind = .automatic
-                } else {
-                    self.selection = []
-                    self.selectionKind = .none
+        searchTask?.cancel()
+        searchTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(30)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            let worker = Task.detached(priority: .userInitiated) {
+                var documents = cachedDocuments
+                var refreshed: [SearchDocument] = []
+                refreshed.reserveCapacity(staleNotes.count)
+                for note in staleNotes {
+                    if Task.isCancelled { return (found: [SearchResult](), refreshed: [SearchDocument]()) }
+                    let document = SearchDocument(note: note)
+                    documents[note.id] = document
+                    refreshed.append(document)
                 }
+                let found = SearchService.search(
+                    query, in: Array(documents.values), sort: sort,
+                    isCancelled: { Task.isCancelled }
+                )
+                return (found: found, refreshed: refreshed)
+            }
+            let output = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, let self, self.searchGeneration == generation else { return }
+            for document in output.refreshed {
+                if self.notes.first(where: { $0.id == document.id })?.revision == document.note.revision {
+                    self.searchDocuments[document.id] = document
+                    self.staleSearchDocumentIDs.remove(document.id)
+                }
+            }
+            self.applySearchResults(output.found, query: query, sort: sort)
+        }
+    }
+
+    private func applySearchResults(_ found: [SearchResult], query: SearchQuery, sort: NoteSort) {
+        results = found
+        let available = Set(found.map(\.id))
+        if selectionKind == .explicit {
+            selection.formIntersection(available)
+        } else if let automatic = SearchService.automaticMatch(query: query.rawValue, results: found, sort: sort) {
+            selection = [automatic]
+            selectionKind = .automatic
+        } else {
+            selection = []
+            selectionKind = .none
+        }
+        populateSelectedHighlightRanges()
+    }
+
+    private func populateSelectedHighlightRanges() {
+        guard highlightSearch, selection.count == 1, let id = selection.first,
+              let document = searchDocuments[id],
+              let highlighted = SearchService.result(for: document, query: SearchQuery(query)),
+              let index = results.firstIndex(where: { $0.id == id }) else { return }
+        results[index] = highlighted
+    }
+
+    private func insertResultForCurrentQuery(_ note: Note) {
+        searchGeneration += 1
+        searchTask?.cancel()
+        var updated = results.filter { $0.id != note.id }
+        if let document = searchDocuments[note.id],
+           let result = SearchService.result(for: document, query: SearchQuery(query)) {
+            updated.append(result)
+        }
+        results = updated.sorted { SearchService.compare($0.note, $1.note, sort: sort) }
+        refreshSearch()
+    }
+
+    private func updateVisibleResult(for note: Note) {
+        if SearchQuery(query).isEmpty {
+            visibleResultTask?.cancel()
+            visibleResultTask = Task { [weak self] in
+                do { try await Task.sleep(for: .milliseconds(40)) }
+                catch { return }
+                guard !Task.isCancelled, let self,
+                      let current = self.notes.first(where: { $0.id == note.id }) else { return }
+                var updated = self.results
+                if let index = updated.firstIndex(where: { $0.id == current.id }) {
+                    updated[index] = SearchResult(note: current, titleRanges: [], bodyRanges: [])
+                } else {
+                    updated.append(SearchResult(note: current, titleRanges: [], bodyRanges: []))
+                }
+                self.results = updated.sorted { SearchService.compare($0.note, $1.note, sort: self.sort) }
+            }
+        } else {
+            refreshSearch()
+        }
+    }
+
+    private func recomputeDuplicateTitleKeys() {
+        let grouped = Dictionary(grouping: notes, by: { TextNormalizer.normalize($0.title) })
+        duplicateTitleKeys = Set(grouped.filter { $0.value.count > 1 }.map(\.key))
+    }
+
+    private func scheduleCacheUpsert(_ note: Note) {
+        guard let cache else { return }
+        Task.detached(priority: .utility) {
+            try? cache.upsert(note)
+        }
+    }
+
+    private func scheduleWordCount() {
+        wordCountTask?.cancel()
+        guard showWordCount, selection.count == 1, let note = selectedNote else {
+            currentWordCount = nil
+            return
+        }
+        let noteID = note.id
+        let body = note.body
+        wordCountTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(120)) }
+            catch { return }
+            let count = await Task.detached(priority: .utility) {
+                body.split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }.count
+            }.value
+            guard !Task.isCancelled, let self, self.selection == [noteID] else { return }
+            self.currentWordCount = count
+        }
+    }
+
+    private func scheduleJournal(for note: Note) {
+        guard journal != nil else { return }
+        journalTasks[note.id]?.cancel()
+        journalTasks[note.id] = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(400)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            await self?.writeJournalNow(note.id)
+        }
+        if journalDeadlineTasks[note.id] == nil {
+            journalDeadlineTasks[note.id] = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(2)) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                await self?.writeJournalNow(note.id)
             }
         }
     }
 
-    private func refreshSearchImmediately() {
-        searchGeneration += 1
-        results = SearchService.search(SearchQuery(query), in: notes, sort: sort)
+    private func writeJournalNow(_ id: UUID) async {
+        guard let journal, let note = notes.first(where: { $0.id == id }),
+              (lastJournaledRevision[id] ?? -1) < note.revision else { return }
+        journalTasks[id]?.cancel()
+        journalTasks[id] = nil
+        journalDeadlineTasks[id]?.cancel()
+        journalDeadlineTasks[id] = nil
+
+        let preceding = journalOperations[id]
+        let operationID = UUID()
+        journalOperationIDs[id] = operationID
+        let operation = Task { [weak self] in
+            await preceding?.value
+            guard let self else { return }
+            await self.performJournalWrite(note, journal: journal)
+        }
+        journalOperations[id] = operation
+        await operation.value
+        if journalOperationIDs[id] == operationID {
+            journalOperations[id] = nil
+            journalOperationIDs[id] = nil
+        }
+        if let current = notes.first(where: { $0.id == id }), current.revision > note.revision {
+            scheduleJournal(for: current)
+        }
     }
 
-    private func scheduleJournal(for note: Note) {
-        guard let journal else { return }
+    private func performJournalWrite(_ note: Note, journal: RecoveryJournal) async {
+        guard (lastJournaledRevision[note.id] ?? -1) < note.revision else { return }
         let previous = journalIDs[note.id]
         let entry = JournalEntry(
             noteID: note.id, kind: .edit, baseHash: note.lastSavedHash,
             filename: note.filename, intendedFilename: note.filename,
             body: note.body, revision: note.revision
         )
-        journalIDs[note.id] = entry.id
-        Task {
-            do {
-                try await journal.record(entry)
-                if let previous { try? await journal.remove(previous) }
-            } catch { self.errorMessage = error.localizedDescription }
+        do {
+            try await journal.record(entry)
+            journalIDs[note.id] = entry.id
+            lastJournaledRevision[note.id] = note.revision
+            if let previous { try? await journal.remove(previous) }
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -547,8 +737,9 @@ final class AppModel {
     }
 
     private func save(_ id: UUID) async {
-        guard dirtyNoteIDs.contains(id), let repository,
-              let index = notes.firstIndex(where: { $0.id == id }) else { return }
+        guard dirtyNoteIDs.contains(id), let repository else { return }
+        await writeJournalNow(id)
+        guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
         let snapshot = notes[index]
         do {
             switch try await repository.save(note: snapshot) {
@@ -566,13 +757,15 @@ final class AppModel {
                 notes[current].lastSavedHash = hash
                 notes[current].modifiedAt = date
                 notes[current].fileIdentity = identity
+                if let document = searchDocuments[id] {
+                    searchDocuments[id] = document.replacingMetadata(with: notes[current])
+                }
                 baseBodies[id] = snapshot.body
                 if let journalID = journalIDs[id], notes[current].revision == snapshot.revision {
                     try? await journal?.remove(journalID)
                     journalIDs[id] = nil
                 }
-                do { try cache?.upsert(notes[current]) }
-                catch { logger.error("Cache update failed after save: \(String(describing: error), privacy: .public)") }
+                scheduleCacheUpsert(notes[current])
             case .conflict(let data, let hash):
                 conflict = makeConflict(note: snapshot, data: data, hash: hash)
             }
@@ -590,10 +783,18 @@ final class AppModel {
 
     private func reconcileExternalChanges() async {
         guard let libraryURL else { return }
+        reconcileGeneration += 1
+        let generation = reconcileGeneration
+        let scanner = scanner
+        let extensions = recognizedExtensions
+        let cachedNotes = notes
         do {
-            let oldByFilename = Dictionary(uniqueKeysWithValues: notes.map { ($0.filename, $0) })
-            var scan = try scanner.scan(directory: libraryURL, recognizedExtensions: recognizedExtensions, cached: oldByFilename)
-            let oldByIdentity = Dictionary(uniqueKeysWithValues: notes.compactMap { note in note.fileIdentity.map { ($0, note) } })
+            let oldByFilename = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.filename, $0) })
+            var scan = try await Task.detached(priority: .utility) {
+                try scanner.scan(directory: libraryURL, recognizedExtensions: extensions, cached: oldByFilename)
+            }.value
+            guard generation == reconcileGeneration else { return }
+            let oldByIdentity = Dictionary(uniqueKeysWithValues: cachedNotes.compactMap { note in note.fileIdentity.map { ($0, note) } })
             let identityPreserved = scan.notes.map { disk -> Note in
                 guard oldByFilename[disk.filename] == nil, let identity = disk.fileIdentity,
                       let old = oldByIdentity[identity] else { return disk }
@@ -629,8 +830,13 @@ final class AppModel {
                 }
             }
             notes = reconciled
+            searchDocuments = Dictionary(uniqueKeysWithValues: reconciled.map { ($0.id, SearchDocument(note: $0)) })
+            staleSearchDocumentIDs.removeAll()
+            recomputeDuplicateTitleKeys()
             scanIssues = scan.issues
-            if !isReadOnly { try? cache?.replaceAll(with: reconciled) }
+            if !isReadOnly, let cache {
+                Task.detached(priority: .utility) { try? cache.replaceAll(with: reconciled) }
+            }
             refreshSearch()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -661,6 +867,9 @@ final class AppModel {
                     }
                 }
             }
+            searchDocuments = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, SearchDocument(note: $0)) })
+            staleSearchDocumentIDs.removeAll()
+            recomputeDuplicateTitleKeys()
         } catch { errorMessage = error.localizedDescription }
     }
 

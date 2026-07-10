@@ -63,8 +63,34 @@ struct QueryParserTests {
 
     @Test func newlyCreatedExactTitleAppearsWithoutClearingItsFilter() {
         let query = SearchQuery("Brand New")
-        #expect(SearchService.search(query, in: [], sort: .init()).isEmpty)
+        #expect(SearchService.search(query, in: [Note](), sort: .init()).isEmpty)
         let created = Note(title: "Brand New", body: "", filename: "Brand New.txt")
         #expect(SearchService.search(query, in: [created], sort: .init()).map(\.id) == [created.id])
+    }
+
+    @Test func cachedSearchDocumentsPreserveSemantics() {
+        let note = Note(title: "Café Project", body: "An interstellar body", filename: "Café Project.txt")
+        let document = SearchDocument(note: note)
+        #expect(SearchService.search(SearchQuery("cafe stell"), in: [document], sort: .init()).map(\.id) == [note.id])
+
+        var metadataOnly = note
+        metadataOnly.modifiedAt = .now.addingTimeInterval(30)
+        let refreshed = document.replacingMetadata(with: metadataOnly)
+        #expect(SearchService.search(SearchQuery("interstellar"), in: [refreshed], sort: .init()).first?.note.modifiedAt == metadataOnly.modifiedAt)
+    }
+
+    @Test func cancellableSearchStopsBeforePublishingPartialResults() {
+        let documents = (0..<100).map {
+            SearchDocument(note: Note(title: "Note \($0)", body: "common body", filename: "Note \($0).txt"))
+        }
+        #expect(SearchService.search(
+            SearchQuery("common"), in: documents, sort: .init(), isCancelled: { true }
+        ).isEmpty)
+    }
+
+    @Test func excerptsAreBoundedWithoutScanningForPresentationLines() {
+        let excerpt = SearchService.excerpt(from: String(repeating: "word ", count: 10_000), limit: 80)
+        #expect(excerpt.count <= 80)
+        #expect(excerpt.hasPrefix("word word"))
     }
 }

@@ -13,10 +13,44 @@ public actor FileRepository {
 
     public func create(filename: String, body: String, lineEnding: LineEnding = .lf) throws -> FileWriteResult {
         let destination = libraryURL.appendingPathComponent(filename)
-        guard !FileManager.default.fileExists(atPath: destination.path) else {
-            throw NVNVError.fileOperation(path: filename, reason: "a file already exists")
+        let bytes = Data(lineEnding.encoded(body).utf8)
+        let descriptor = open(destination.path, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else {
+            let reason = errno == EEXIST ? "a file already exists" : String(cString: strerror(errno))
+            throw NVNVError.fileOperation(path: filename, reason: reason)
         }
-        return try replace(destination: destination, body: body, lineEnding: lineEnding, expectedHash: nil)
+        var isOpen = true
+        defer {
+            if isOpen { close(descriptor) }
+        }
+        do {
+            try bytes.withUnsafeBytes { rawBuffer in
+                guard let base = rawBuffer.baseAddress else { return }
+                var offset = 0
+                while offset < rawBuffer.count {
+                    let count = Darwin.write(descriptor, base.advanced(by: offset), rawBuffer.count - offset)
+                    guard count >= 0 else {
+                        throw NVNVError.fileOperation(path: filename, reason: String(cString: strerror(errno)))
+                    }
+                    offset += count
+                }
+            }
+            guard fsync(descriptor) == 0 else {
+                throw NVNVError.fileOperation(path: filename, reason: String(cString: strerror(errno)))
+            }
+            close(descriptor)
+            isOpen = false
+            try syncDirectory()
+            let values = try destination.resourceValues(forKeys: [.contentModificationDateKey])
+            return .saved(
+                hash: Hashing.sha256(bytes), modifiedAt: values.contentModificationDate ?? .now,
+                identity: fileIdentity(destination)
+            )
+        } catch {
+            if isOpen { close(descriptor); isOpen = false }
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
     }
 
     public func save(note: Note) throws -> FileWriteResult {

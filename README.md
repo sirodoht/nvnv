@@ -13,9 +13,10 @@ Requires macOS 15 or newer and Xcode 26 / Swift 6.2 or newer.
 ./script/build_and_run.sh
 ```
 
-The script builds the Swift package, stages `dist/nvnv.app`, stops an older
-instance, and opens the new app bundle. It also supports `--verify`, `--debug`,
-`--logs`, and `--telemetry`. The Codex **Run** action is wired to this script.
+The script builds an optimized release product, stages `dist/nvnv.app`, stops
+an older instance, and opens the new app bundle. It also supports `--verify`,
+`--debug` (which uses a debug-symbol build), `--logs`, and `--telemetry`. The
+Codex **Run** action is wired to this script.
 
 ## Test
 
