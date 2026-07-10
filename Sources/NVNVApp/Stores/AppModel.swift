@@ -885,7 +885,11 @@ final class AppModel {
                     cursorStart: old.cursorStart, cursorLength: old.cursorLength,
                     revision: old.revision + 1, filename: disk.filename,
                     lastSavedHash: disk.lastSavedHash, lineEnding: disk.lineEnding,
-                    fileIdentity: disk.fileIdentity
+                    fileIdentity: disk.fileIdentity, fileSize: disk.fileSize,
+                    fileModificationSeconds: disk.fileModificationSeconds,
+                    fileModificationNanoseconds: disk.fileModificationNanoseconds,
+                    fileStatusChangeSeconds: disk.fileStatusChangeSeconds,
+                    fileStatusChangeNanoseconds: disk.fileStatusChangeNanoseconds
                 )
                 return renamed
             }

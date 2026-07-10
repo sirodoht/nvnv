@@ -50,6 +50,12 @@ public struct LibraryScanner: Sendable {
         var notes: [Note] = []
         var issues: [ScanIssue] = []
         var identities: Set<String> = []
+        var cachedByIdentity: [String: Note] = [:]
+        for note in cached.values {
+            if let identity = note.fileIdentity, cachedByIdentity[identity] == nil {
+                cachedByIdentity[identity] = note
+            }
+        }
 
         for url in urls {
             let filename = url.lastPathComponent
@@ -57,12 +63,30 @@ public struct LibraryScanner: Sendable {
                   recognizedExtensions.contains(url.pathExtension.lowercased()) else { continue }
             let values = try url.resourceValues(forKeys: keys)
             guard values.isRegularFile == true, values.isSymbolicLink != true, values.isHidden != true else { continue }
-            guard let identity = fileIdentity(url) else {
+            guard let metadata = fileMetadata(url) else {
                 issues.append(.init(filename: filename, message: "Could not determine a stable file identity."))
                 continue
             }
+            let identity = metadata.identity
             guard identities.insert(identity).inserted else {
                 issues.append(.init(filename: filename, message: "Duplicate hard link ignored."))
+                continue
+            }
+            let old = cached[filename] ?? cachedByIdentity[identity]
+            if let old, metadata.matches(old) {
+                notes.append(Note(
+                    id: old.id, title: url.deletingPathExtension().lastPathComponent,
+                    body: old.body, createdAt: old.createdAt,
+                    modifiedAt: metadata.modificationDate,
+                    cursorStart: old.cursorStart, cursorLength: old.cursorLength,
+                    revision: old.revision, filename: filename,
+                    lastSavedHash: old.lastSavedHash, lineEnding: old.lineEnding,
+                    fileIdentity: identity, fileSize: metadata.size,
+                    fileModificationSeconds: metadata.modificationSeconds,
+                    fileModificationNanoseconds: metadata.modificationNanoseconds,
+                    fileStatusChangeSeconds: metadata.statusChangeSeconds,
+                    fileStatusChangeNanoseconds: metadata.statusChangeNanoseconds
+                ))
                 continue
             }
             let data = try Data(contentsOf: url, options: [.mappedIfSafe])
@@ -77,22 +101,55 @@ public struct LibraryScanner: Sendable {
             }
             let lineEnding: LineEnding = rawBody.contains("\r\n") ? .crlf : .lf
             let body = rawBody.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-            let old = cached[filename]
             notes.append(Note(
                 id: old?.id ?? UUID(), title: url.deletingPathExtension().lastPathComponent,
                 body: body, createdAt: values.creationDate ?? old?.createdAt ?? now,
-                modifiedAt: values.contentModificationDate ?? now,
+                modifiedAt: metadata.modificationDate,
                 cursorStart: old?.cursorStart ?? 0, cursorLength: old?.cursorLength ?? 0,
                 revision: old?.revision ?? 0, filename: filename,
-                lastSavedHash: Hashing.sha256(data), lineEnding: lineEnding, fileIdentity: identity
+                lastSavedHash: Hashing.sha256(data), lineEnding: lineEnding, fileIdentity: identity,
+                fileSize: metadata.size,
+                fileModificationSeconds: metadata.modificationSeconds,
+                fileModificationNanoseconds: metadata.modificationNanoseconds,
+                fileStatusChangeSeconds: metadata.statusChangeSeconds,
+                fileStatusChangeNanoseconds: metadata.statusChangeNanoseconds
             ))
         }
         return ScanResult(notes: notes, issues: issues)
     }
 
-    private func fileIdentity(_ url: URL) -> String? {
+    private func fileMetadata(_ url: URL) -> ScannedFileMetadata? {
         var info = stat()
         guard lstat(url.path, &info) == 0 else { return nil }
-        return "\(info.st_dev):\(info.st_ino)"
+        return ScannedFileMetadata(
+            identity: "\(info.st_dev):\(info.st_ino)",
+            size: Int64(info.st_size),
+            modificationSeconds: Int64(info.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(info.st_mtimespec.tv_nsec),
+            statusChangeSeconds: Int64(info.st_ctimespec.tv_sec),
+            statusChangeNanoseconds: Int64(info.st_ctimespec.tv_nsec)
+        )
+    }
+}
+
+private struct ScannedFileMetadata {
+    let identity: String
+    let size: Int64
+    let modificationSeconds: Int64
+    let modificationNanoseconds: Int64
+    let statusChangeSeconds: Int64
+    let statusChangeNanoseconds: Int64
+
+    var modificationDate: Date {
+        Date(timeIntervalSince1970: Double(modificationSeconds) + Double(modificationNanoseconds) / 1_000_000_000)
+    }
+
+    func matches(_ note: Note) -> Bool {
+        note.fileIdentity == identity
+            && note.fileSize == size
+            && note.fileModificationSeconds == modificationSeconds
+            && note.fileModificationNanoseconds == modificationNanoseconds
+            && note.fileStatusChangeSeconds == statusChangeSeconds
+            && note.fileStatusChangeNanoseconds == statusChangeNanoseconds
     }
 }

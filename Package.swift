@@ -14,6 +14,6 @@ let package = Package(
         .target(name: "NVNVCore", dependencies: ["CSQLite"]),
         .executableTarget(name: "NVNVApp", dependencies: ["NVNVCore"]),
         .executableTarget(name: "NVNVProbes", dependencies: ["NVNVCore"]),
-        .testTarget(name: "NVNVCoreTests", dependencies: ["NVNVCore"]),
+        .testTarget(name: "NVNVCoreTests", dependencies: ["NVNVCore", "CSQLite"]),
     ]
 )

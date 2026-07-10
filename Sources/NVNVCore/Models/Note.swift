@@ -14,13 +14,23 @@ public struct Note: Identifiable, Codable, Hashable, Sendable {
     public var deletedAt: Date?
     public var lineEnding: LineEnding
     public var fileIdentity: String?
+    /// Metadata captured by the scanner. All fingerprint values must be present before
+    /// the cached body can be trusted without opening the file again.
+    public var fileSize: Int64?
+    public var fileModificationSeconds: Int64?
+    public var fileModificationNanoseconds: Int64?
+    public var fileStatusChangeSeconds: Int64?
+    public var fileStatusChangeNanoseconds: Int64?
 
     public init(
         id: UUID = UUID(), title: String, body: String,
         createdAt: Date = .now, modifiedAt: Date = .now,
         cursorStart: Int = 0, cursorLength: Int = 0, revision: Int = 0,
         filename: String, lastSavedHash: String = "", deletedAt: Date? = nil,
-        lineEnding: LineEnding = .lf, fileIdentity: String? = nil
+        lineEnding: LineEnding = .lf, fileIdentity: String? = nil,
+        fileSize: Int64? = nil, fileModificationSeconds: Int64? = nil,
+        fileModificationNanoseconds: Int64? = nil,
+        fileStatusChangeSeconds: Int64? = nil, fileStatusChangeNanoseconds: Int64? = nil
     ) {
         self.id = id
         self.title = title
@@ -35,6 +45,11 @@ public struct Note: Identifiable, Codable, Hashable, Sendable {
         self.deletedAt = deletedAt
         self.lineEnding = lineEnding
         self.fileIdentity = fileIdentity
+        self.fileSize = fileSize
+        self.fileModificationSeconds = fileModificationSeconds
+        self.fileModificationNanoseconds = fileModificationNanoseconds
+        self.fileStatusChangeSeconds = fileStatusChangeSeconds
+        self.fileStatusChangeNanoseconds = fileStatusChangeNanoseconds
     }
 
     public var clampedSelection: NSRange {

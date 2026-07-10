@@ -39,7 +39,7 @@ public final class SQLiteCache: @unchecked Sendable {
 
     public func cachedNotes() throws -> [Note] {
         try withLock {
-            let sql = "SELECT id,title,body,created_at,modified_at,cursor_start,cursor_length,revision,filename,last_saved_hash,line_ending,file_identity FROM notes ORDER BY filename"
+            let sql = "SELECT id,title,body,created_at,modified_at,cursor_start,cursor_length,revision,filename,last_saved_hash,line_ending,file_identity,file_size,file_mtime_seconds,file_mtime_nanoseconds,file_ctime_seconds,file_ctime_nanoseconds FROM notes ORDER BY filename"
             let statement = try prepare(sql)
             defer { sqlite3_finalize(statement) }
             var notes: [Note] = []
@@ -53,7 +53,12 @@ public final class SQLiteCache: @unchecked Sendable {
                     cursorLength: Int(sqlite3_column_int64(statement, 6)),
                     revision: Int(sqlite3_column_int64(statement, 7)), filename: text(statement, 8),
                     lastSavedHash: text(statement, 9), lineEnding: LineEnding(rawValue: text(statement, 10)) ?? .lf,
-                    fileIdentity: nullableText(statement, 11)
+                    fileIdentity: nullableText(statement, 11),
+                    fileSize: nullableInt64(statement, 12),
+                    fileModificationSeconds: nullableInt64(statement, 13),
+                    fileModificationNanoseconds: nullableInt64(statement, 14),
+                    fileStatusChangeSeconds: nullableInt64(statement, 15),
+                    fileStatusChangeNanoseconds: nullableInt64(statement, 16)
                 ))
             }
             return notes
@@ -157,16 +162,25 @@ public final class SQLiteCache: @unchecked Sendable {
               file_identity TEXT
             )
             """)
+        try addColumnIfNeeded("file_size", declaration: "INTEGER")
+        try addColumnIfNeeded("file_mtime_seconds", declaration: "INTEGER")
+        try addColumnIfNeeded("file_mtime_nanoseconds", declaration: "INTEGER")
+        try addColumnIfNeeded("file_ctime_seconds", declaration: "INTEGER")
+        try addColumnIfNeeded("file_ctime_nanoseconds", declaration: "INTEGER")
+        try execute("UPDATE schema_info SET version=3")
     }
 
     private func upsertUnlocked(_ note: Note) throws {
         let sql = """
-            INSERT INTO notes(id,title,body,normalized_title,normalized_body,created_at,modified_at,cursor_start,cursor_length,revision,filename,last_saved_hash,line_ending,file_identity)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO notes(id,title,body,normalized_title,normalized_body,created_at,modified_at,cursor_start,cursor_length,revision,filename,last_saved_hash,line_ending,file_identity,file_size,file_mtime_seconds,file_mtime_nanoseconds,file_ctime_seconds,file_ctime_nanoseconds)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,normalized_title=excluded.normalized_title,
               normalized_body=excluded.normalized_body,created_at=excluded.created_at,modified_at=excluded.modified_at,
               cursor_start=excluded.cursor_start,cursor_length=excluded.cursor_length,revision=excluded.revision,
-              filename=excluded.filename,last_saved_hash=excluded.last_saved_hash,line_ending=excluded.line_ending,file_identity=excluded.file_identity
+              filename=excluded.filename,last_saved_hash=excluded.last_saved_hash,line_ending=excluded.line_ending,
+              file_identity=excluded.file_identity,file_size=excluded.file_size,
+              file_mtime_seconds=excluded.file_mtime_seconds,file_mtime_nanoseconds=excluded.file_mtime_nanoseconds,
+              file_ctime_seconds=excluded.file_ctime_seconds,file_ctime_nanoseconds=excluded.file_ctime_nanoseconds
             """
         let statement = try prepare(sql)
         defer { sqlite3_finalize(statement) }
@@ -182,6 +196,11 @@ public final class SQLiteCache: @unchecked Sendable {
         bind(note.lineEnding.rawValue, to: statement, at: 13)
         if let identity = note.fileIdentity { bind(identity, to: statement, at: 14) }
         else { sqlite3_bind_null(statement, 14) }
+        bind(note.fileSize, to: statement, at: 15)
+        bind(note.fileModificationSeconds, to: statement, at: 16)
+        bind(note.fileModificationNanoseconds, to: statement, at: 17)
+        bind(note.fileStatusChangeSeconds, to: statement, at: 18)
+        bind(note.fileStatusChangeNanoseconds, to: statement, at: 19)
         try stepDone(statement)
 
         if fts5TrigramAvailable {
@@ -221,6 +240,15 @@ public final class SQLiteCache: @unchecked Sendable {
 
     private func execute(_ sql: String) throws { try withLock { try executeUnlocked(sql) } }
 
+    private func addColumnIfNeeded(_ name: String, declaration: String) throws {
+        let statement = try prepare("PRAGMA table_info(notes)")
+        defer { sqlite3_finalize(statement) }
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if text(statement, 1) == name { return }
+        }
+        try execute("ALTER TABLE notes ADD COLUMN \(name) \(declaration)")
+    }
+
     private func executeUnlocked(_ sql: String) throws {
         guard let database else { throw NVNVError.cache("database is closed") }
         var error: UnsafeMutablePointer<CChar>?
@@ -257,6 +285,15 @@ public final class SQLiteCache: @unchecked Sendable {
 
     private func nullableText(_ statement: OpaquePointer, _ column: Int32) -> String? {
         sqlite3_column_type(statement, column) == SQLITE_NULL ? nil : text(statement, column)
+    }
+
+    private func nullableInt64(_ statement: OpaquePointer, _ column: Int32) -> Int64? {
+        sqlite3_column_type(statement, column) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, column)
+    }
+
+    private func bind(_ value: Int64?, to statement: OpaquePointer, at index: Int32) {
+        if let value { sqlite3_bind_int64(statement, index, value) }
+        else { sqlite3_bind_null(statement, index) }
     }
 
     private func withLock<T>(_ operation: () throws -> T) throws -> T {

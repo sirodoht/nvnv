@@ -1,3 +1,5 @@
+import CSQLite
+import Darwin
 import Foundation
 import NVNVCore
 import Testing
@@ -110,6 +112,195 @@ struct FileCoreTests {
             )
             #expect(candidates == [stale.id])
         }
+    }
+    @Test func unchangedFileReusesCachedBodyWithoutReadingOrHashing() throws {
+        try withTemporaryDirectory { root in
+            let file = root.appendingPathComponent("Stable.txt")
+            try Data("disk body".utf8).write(to: file)
+            let scanner = LibraryScanner()
+            var cached = try scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes[0]
+            cached.body = "body supplied by cache"
+
+            let result = try scanner.scan(
+                directory: root, recognizedExtensions: ["txt"], cached: [cached.filename: cached]
+            )
+
+            #expect(result.notes[0].body == "body supplied by cache")
+            #expect(result.notes[0].lastSavedHash == cached.lastSavedHash)
+        }
+    }
+
+    @Test func sameSizeChangeWithNewPreciseModificationTimeReloads() throws {
+        try withTemporaryDirectory { root in
+            let file = root.appendingPathComponent("Changed.txt")
+            try Data("one".utf8).write(to: file)
+            let scanner = LibraryScanner()
+            let cached = try scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes[0]
+
+            try Data("two".utf8).write(to: file)
+            try FileManager.default.setAttributes(
+                [.modificationDate: cached.modifiedAt.addingTimeInterval(2)], ofItemAtPath: file.path
+            )
+            let result = try scanner.scan(
+                directory: root, recognizedExtensions: ["txt"], cached: [cached.filename: cached]
+            )
+
+            #expect(result.notes[0].body == "two")
+            #expect(result.notes[0].lastSavedHash != cached.lastSavedHash)
+            #expect(result.notes[0].fileIdentity == cached.fileIdentity)
+        }
+    }
+
+    @Test func sameSizeChangeWithRestoredModificationTimeStillReloads() throws {
+        try withTemporaryDirectory { root in
+            let file = root.appendingPathComponent("PreservedDate.txt")
+            try Data("one".utf8).write(to: file)
+            let scanner = LibraryScanner()
+            let cached = try scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes[0]
+
+            try Data("two".utf8).write(to: file)
+            try setModificationTime(
+                of: file, seconds: #require(cached.fileModificationSeconds),
+                nanoseconds: #require(cached.fileModificationNanoseconds)
+            )
+            let result = try scanner.scan(
+                directory: root, recognizedExtensions: ["txt"], cached: [cached.filename: cached]
+            )
+
+            #expect(result.notes[0].body == "two")
+            #expect(result.notes[0].fileModificationSeconds == cached.fileModificationSeconds)
+            #expect(result.notes[0].fileModificationNanoseconds == cached.fileModificationNanoseconds)
+            #expect(
+                result.notes[0].fileStatusChangeSeconds != cached.fileStatusChangeSeconds
+                    || result.notes[0].fileStatusChangeNanoseconds != cached.fileStatusChangeNanoseconds
+            )
+        }
+    }
+
+    @Test func renamePreservesIdentityButReplacementAtSamePathReloads() throws {
+        try withTemporaryDirectory { root in
+            let original = root.appendingPathComponent("Original.txt")
+            try Data("old".utf8).write(to: original)
+            let scanner = LibraryScanner()
+            var cached = try scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes[0]
+            cached.body = "cached through rename"
+
+            let renamed = root.appendingPathComponent("Renamed.txt")
+            try FileManager.default.moveItem(at: original, to: renamed)
+            let renameResult = try scanner.scan(
+                directory: root, recognizedExtensions: ["txt"], cached: [cached.filename: cached]
+            )
+            #expect(renameResult.notes[0].id == cached.id)
+            // Renaming changes ctime on macOS, so the authoritative body is re-read.
+            #expect(renameResult.notes[0].body == "old")
+            #expect(renameResult.notes[0].filename == "Renamed.txt")
+
+            let replacement = root.appendingPathComponent("Replacement.tmp")
+            try Data("new".utf8).write(to: replacement)
+            try FileManager.default.setAttributes(
+                [.modificationDate: renameResult.notes[0].modifiedAt], ofItemAtPath: replacement.path
+            )
+            #expect(Darwin.rename(replacement.path, renamed.path) == 0)
+            let replacementResult = try scanner.scan(
+                directory: root, recognizedExtensions: ["txt"],
+                cached: [renameResult.notes[0].filename: renameResult.notes[0]]
+            )
+            #expect(replacementResult.notes[0].body == "new")
+            #expect(replacementResult.notes[0].fileIdentity != renameResult.notes[0].fileIdentity)
+        }
+    }
+
+    @Test func changedInvalidUTF8IsNotMaskedByCachedBody() throws {
+        try withTemporaryDirectory { root in
+            let file = root.appendingPathComponent("Encoding.txt")
+            try Data("abc".utf8).write(to: file)
+            let scanner = LibraryScanner()
+            let cached = try scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes[0]
+
+            try Data([0xFF, 0xFE, 0xFD]).write(to: file)
+            try FileManager.default.setAttributes(
+                [.modificationDate: cached.modifiedAt.addingTimeInterval(2)], ofItemAtPath: file.path
+            )
+            let result = try scanner.scan(
+                directory: root, recognizedExtensions: ["txt"], cached: [cached.filename: cached]
+            )
+
+            #expect(result.notes.isEmpty)
+            #expect(result.issues.count == 1)
+            #expect(result.issues[0].message.contains("Invalid UTF-8"))
+        }
+    }
+
+    @Test func versionOneCacheMigratesAndMissingMetadataForcesReload() throws {
+        try withTemporaryDirectory { root in
+            let noteFile = root.appendingPathComponent("Legacy.txt")
+            try Data("authoritative disk body".utf8).write(to: noteFile)
+            let cacheURL = root.appendingPathComponent("legacy.sqlite3")
+            try createVersionOneCache(at: cacheURL)
+
+            let cache = try SQLiteCache(url: cacheURL)
+            let legacy = try #require(cache.cachedNotes().first)
+            #expect(legacy.body == "stale cached body")
+            #expect(legacy.fileSize == nil)
+            #expect(legacy.fileModificationSeconds == nil)
+            #expect(legacy.fileModificationNanoseconds == nil)
+            #expect(legacy.fileStatusChangeSeconds == nil)
+            #expect(legacy.fileStatusChangeNanoseconds == nil)
+
+            let result = try LibraryScanner().scan(
+                directory: root, recognizedExtensions: ["txt"], cached: [legacy.filename: legacy]
+            )
+            #expect(result.notes[0].body == "authoritative disk body")
+            #expect(result.notes[0].fileSize != nil)
+        }
+    }
+}
+
+private func setModificationTime(of url: URL, seconds: Int64, nanoseconds: Int64) throws {
+    var times = [
+        timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)),
+        timespec(tv_sec: Int(seconds), tv_nsec: Int(nanoseconds)),
+    ]
+    let result = times.withUnsafeMutableBufferPointer { buffer in
+        utimensat(AT_FDCWD, url.path, buffer.baseAddress, 0)
+    }
+    guard result == 0 else {
+        throw NSError(
+            domain: NSPOSIXErrorDomain, code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(errno))]
+        )
+    }
+}
+
+private func createVersionOneCache(at url: URL) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+        throw NSError(domain: "FileCoreTests", code: 1)
+    }
+    defer { sqlite3_close(database) }
+    let id = UUID().uuidString
+    let sql = """
+        CREATE TABLE schema_info(version INTEGER NOT NULL);
+        INSERT INTO schema_info(version) VALUES(1);
+        CREATE TABLE notes(
+          id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
+          normalized_title TEXT NOT NULL, normalized_body TEXT NOT NULL,
+          created_at REAL NOT NULL, modified_at REAL NOT NULL,
+          cursor_start INTEGER NOT NULL, cursor_length INTEGER NOT NULL,
+          revision INTEGER NOT NULL, filename TEXT NOT NULL UNIQUE,
+          last_saved_hash TEXT NOT NULL, line_ending TEXT NOT NULL,
+          file_identity TEXT
+        );
+        INSERT INTO notes VALUES(
+          '\(id)', 'Legacy', 'stale cached body', 'legacy', 'stale cached body',
+          1, 1, 0, 0, 0, 'Legacy.txt', 'old-hash', 'lf', NULL
+        );
+        """
+    var error: UnsafeMutablePointer<CChar>?
+    guard sqlite3_exec(database, sql, nil, nil, &error) == SQLITE_OK else {
+        let message = error.map { String(cString: $0) } ?? "SQLite setup failed"
+        sqlite3_free(error)
+        throw NSError(domain: "FileCoreTests", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }
 
