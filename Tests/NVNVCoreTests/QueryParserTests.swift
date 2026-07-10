@@ -88,6 +88,62 @@ struct QueryParserTests {
         ).isEmpty)
     }
 
+    @Test func refinementEligibilityAcceptsOnlyMonotonicConstraints() {
+        #expect(SearchService.canIncrementallyRefine(
+            from: SearchQuery("pro"), to: SearchQuery("project")
+        ))
+        #expect(SearchService.canIncrementallyRefine(
+            from: SearchQuery("project alpha"), to: SearchQuery("project alphabet release")
+        ))
+        #expect(SearchService.canIncrementallyRefine(
+            from: SearchQuery("cafe"), to: SearchQuery("CAFÉ noir")
+        ))
+        #expect(SearchService.canIncrementallyRefine(
+            from: SearchQuery("foo bar"), to: SearchQuery(#""foo bar""#)
+        ))
+
+        #expect(!SearchService.canIncrementallyRefine(
+            from: SearchQuery("project"), to: SearchQuery("pro")
+        ))
+        #expect(!SearchService.canIncrementallyRefine(
+            from: SearchQuery("project"), to: SearchQuery("prospect")
+        ))
+        #expect(!SearchService.canIncrementallyRefine(
+            from: SearchQuery(#""foo bar""#), to: SearchQuery("foo bar")
+        ))
+        #expect(!SearchService.canIncrementallyRefine(
+            from: SearchQuery("project"), to: SearchQuery("   ")
+        ))
+        #expect(!SearchService.canIncrementallyRefine(
+            from: SearchQuery(""), to: SearchQuery("project")
+        ))
+    }
+
+    @Test func incrementalRefinementProducesExactlyTheFullSearchResults() {
+        let notes = [
+            Note(title: "Project Alphabet", body: "Release plan", filename: "Project Alphabet.txt"),
+            Note(title: "Project", body: "Alpha release", filename: "Project.txt"),
+            Note(title: "Unrelated", body: "Project alpha is mentioned here", filename: "Unrelated.txt"),
+            Note(title: "Project Beta", body: "Archived", filename: "Project Beta.txt"),
+        ]
+        let documents = notes.map(SearchDocument.init)
+        let previous = SearchQuery("pro")
+        let next = SearchQuery(#"project "alpha""#)
+        #expect(SearchService.canIncrementallyRefine(from: previous, to: next))
+
+        let previousIDs = Set(SearchService.search(previous, in: documents, sort: .init()).map(\.id))
+        let candidates = documents.filter { previousIDs.contains($0.id) }
+        let incremental = SearchService.search(next, in: candidates, sort: .init()).map(\.id)
+        let full = SearchService.search(next, in: documents, sort: .init()).map(\.id)
+        #expect(incremental == full)
+    }
+
+    @Test func smallRefinementsRunWithoutTheFullScanDebounce() {
+        #expect(!SearchService.shouldDebounce(candidateCount: 0))
+        #expect(!SearchService.shouldDebounce(candidateCount: SearchService.immediateSearchCandidateLimit))
+        #expect(SearchService.shouldDebounce(candidateCount: SearchService.immediateSearchCandidateLimit + 1))
+    }
+
     @Test func excerptsAreBoundedWithoutScanningForPresentationLines() {
         let excerpt = SearchService.excerpt(from: String(repeating: "word ", count: 10_000), limit: 80)
         #expect(excerpt.count <= 80)

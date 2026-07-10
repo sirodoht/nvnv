@@ -69,6 +69,28 @@ public enum SearchSubmitAction: Equatable, Sendable {
 }
 
 public enum SearchService {
+    /// Candidate sets at or below this size are cheap enough to search immediately.
+    /// Larger full scans retain a short debounce so rapid typing can cancel them
+    /// before they consume worker time.
+    public static let immediateSearchCandidateLimit = 2_000
+
+    /// Returns true when every document matching `next` must also have matched
+    /// `previous`. Search is an AND of substring terms, so each old term must be
+    /// contained by at least one new term. This also conservatively handles
+    /// transitions into phrases while rejecting phrase splits and query deletion.
+    public static func canIncrementallyRefine(from previous: SearchQuery, to next: SearchQuery) -> Bool {
+        let previousTerms = normalizedTerms(in: previous)
+        let nextTerms = normalizedTerms(in: next)
+        guard !previousTerms.isEmpty, !nextTerms.isEmpty else { return false }
+        return previousTerms.allSatisfy { previousTerm in
+            nextTerms.contains { $0.contains(previousTerm) }
+        }
+    }
+
+    public static func shouldDebounce(candidateCount: Int) -> Bool {
+        candidateCount > immediateSearchCandidateLimit
+    }
+
     public static func search(_ query: SearchQuery, in notes: [Note], sort: NoteSort) -> [SearchResult] {
         search(query, in: notes.map(SearchDocument.init), sort: sort)
     }
@@ -81,10 +103,7 @@ public enum SearchService {
         _ query: SearchQuery, in documents: [SearchDocument], sort: NoteSort,
         isCancelled: @Sendable () -> Bool
     ) -> [SearchResult] {
-        let terms = query.terms.compactMap { term -> (original: String, normalized: String, bytes: Data)? in
-            let normalized = TextNormalizer.normalize(term.value)
-            return normalized.isEmpty ? nil : (term.value, normalized, Data(normalized.utf8))
-        }
+        let terms = preparedTerms(in: query)
         var found: [SearchResult] = []
         found.reserveCapacity(documents.count)
         for document in documents {
@@ -100,11 +119,24 @@ public enum SearchService {
     }
 
     public static func result(for document: SearchDocument, query: SearchQuery) -> SearchResult? {
-        let terms = query.terms.compactMap { term -> (original: String, normalized: String, bytes: Data)? in
+        let terms = preparedTerms(in: query)
+        return result(for: document, terms: terms, includeRanges: true)
+    }
+
+    private static func normalizedTerms(in query: SearchQuery) -> [String] {
+        query.terms.compactMap {
+            let normalized = TextNormalizer.normalize($0.value)
+            return normalized.isEmpty ? nil : normalized
+        }
+    }
+
+    private static func preparedTerms(
+        in query: SearchQuery
+    ) -> [(original: String, normalized: String, bytes: Data)] {
+        query.terms.compactMap { term in
             let normalized = TextNormalizer.normalize(term.value)
             return normalized.isEmpty ? nil : (term.value, normalized, Data(normalized.utf8))
         }
-        return result(for: document, terms: terms, includeRanges: true)
     }
 
     public static func automaticMatch(query: String, documents: [SearchDocument], sort: NoteSort) -> UUID? {

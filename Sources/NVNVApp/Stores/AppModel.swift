@@ -62,7 +62,12 @@ final class AppModel {
     private var searchGeneration = 0
     private var searchTask: Task<Void, Never>?
     private var visibleResultTask: Task<Void, Never>?
-    private var searchDocuments: [UUID: SearchDocument] = [:]
+    private var searchDocuments: [UUID: SearchDocument] = [:] {
+        didSet { searchDocumentsGeneration &+= 1 }
+    }
+    private var searchDocumentsGeneration: UInt = 0
+    private var lastAppliedSearchDocumentsGeneration: UInt?
+    private var lastAppliedSearchQuery: SearchQuery?
     private var staleSearchDocumentIDs: Set<UUID> = []
     private var saveTasks: [UUID: Task<Void, Never>] = [:]
     private var deadlineTasks: [UUID: Task<Void, Never>] = [:]
@@ -535,10 +540,22 @@ final class AppModel {
         let cachedDocuments = searchDocuments
         let staleNotes = notes.filter { staleSearchDocumentIDs.contains($0.id) }
         let sort = sort
+        let refinementDocuments: [SearchDocument]? = {
+            guard staleNotes.isEmpty,
+                  lastAppliedSearchDocumentsGeneration == searchDocumentsGeneration,
+                  let previousQuery = lastAppliedSearchQuery,
+                  SearchService.canIncrementallyRefine(from: previousQuery, to: query) else { return nil }
+            let candidates = results.compactMap { cachedDocuments[$0.id] }
+            return candidates.count == results.count ? candidates : nil
+        }()
+        let candidateCount = refinementDocuments?.count ?? cachedDocuments.count
+        let shouldDebounce = SearchService.shouldDebounce(candidateCount: candidateCount)
         searchTask?.cancel()
         searchTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(30)) }
-            catch { return }
+            if shouldDebounce {
+                do { try await Task.sleep(for: .milliseconds(30)) }
+                catch { return }
+            }
             guard !Task.isCancelled else { return }
             let worker = Task.detached(priority: .userInitiated) {
                 var documents = cachedDocuments
@@ -550,8 +567,9 @@ final class AppModel {
                     documents[note.id] = document
                     refreshed.append(document)
                 }
+                let candidates = refinementDocuments ?? Array(documents.values)
                 let found = SearchService.search(
-                    query, in: Array(documents.values), sort: sort,
+                    query, in: candidates, sort: sort,
                     isCancelled: { Task.isCancelled }
                 )
                 return (found: found, refreshed: refreshed)
@@ -568,6 +586,8 @@ final class AppModel {
                     self.staleSearchDocumentIDs.remove(document.id)
                 }
             }
+            self.lastAppliedSearchDocumentsGeneration = self.searchDocumentsGeneration
+            self.lastAppliedSearchQuery = query
             self.applySearchResults(output.found, query: query, sort: sort)
         }
     }
