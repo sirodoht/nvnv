@@ -92,13 +92,9 @@ struct PlainTextEditor: NSViewRepresentable {
         if let focusRequest,
            focusRequest.noteID == note.id,
            coordinator.lastFocusRequestID != focusRequest.id {
-            coordinator.lastFocusRequestID = focusRequest.id
-            let handled = onFocusRequestHandled
-            DispatchQueue.main.async {
-                if text.window?.makeFirstResponder(text) == true {
-                    handled(focusRequest.id)
-                }
-            }
+            coordinator.requestFocus(focusRequest, for: text)
+        } else if focusRequest == nil {
+            coordinator.cancelPendingFocus()
         }
         if coordinator.lastCommandGeneration != commandGeneration {
             coordinator.lastCommandGeneration = commandGeneration
@@ -120,6 +116,7 @@ struct PlainTextEditor: NSViewRepresentable {
         var parent: PlainTextEditor
         var pushingState = false
         var lastFocusRequestID: UUID?
+        var pendingFocusRequestID: UUID?
         var lastCommandGeneration: Int
         var lastMatchRanges: [NSRange]?
         var lastHighlightedRevision = -1
@@ -127,6 +124,39 @@ struct PlainTextEditor: NSViewRepresentable {
         init(parent: PlainTextEditor) {
             self.parent = parent
             lastCommandGeneration = parent.commandGeneration
+        }
+
+        func requestFocus(_ request: EditorFocusRequest, for textView: NSTextView) {
+            guard pendingFocusRequestID != request.id else { return }
+            pendingFocusRequestID = request.id
+            attemptFocus(request, for: textView, remainingAttempts: 30)
+        }
+
+        func cancelPendingFocus() {
+            pendingFocusRequestID = nil
+        }
+
+        private func attemptFocus(
+            _ request: EditorFocusRequest, for textView: NSTextView, remainingAttempts: Int
+        ) {
+            guard pendingFocusRequestID == request.id,
+                  parent.focusRequest?.id == request.id else { return }
+            if let window = textView.window, window.makeFirstResponder(textView) {
+                lastFocusRequestID = request.id
+                pendingFocusRequestID = nil
+                parent.onFocusRequestHandled(request.id)
+                return
+            }
+            guard remainingAttempts > 0 else {
+                // Leave the model request unconsumed so a later representable
+                // update can initiate another attempt.
+                pendingFocusRequestID = nil
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(10)) { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.attemptFocus(request, for: textView, remainingAttempts: remainingAttempts - 1)
+            }
         }
 
         func textDidChange(_ notification: Notification) {
