@@ -3,8 +3,11 @@ import SwiftUI
 
 struct NoteListView: View {
     @Bindable var model: AppModel
+    @Environment(\.locale) private var locale
+    @Environment(\.calendar) private var calendar
+    @Environment(\.timeZone) private var timeZone
     @AppStorage("noteListModifiedDateColumnWidth") private var storedModifiedColumnWidth = 150.0
-    @State private var rowContentBounds: CGRect?
+    @State private var rowContentInsets: NoteTableContentInsets?
     @State private var columnDragStartWidth: CGFloat?
 
     private let columnSeparatorWidth: CGFloat = 9
@@ -35,14 +38,13 @@ struct NoteListView: View {
                                 fontSize: model.listFontSize,
                                 modifiedColumnWidth: modifiedWidth,
                                 createdColumnWidth: createdColumnWidth,
-                                columnSeparatorWidth: columnSeparatorWidth
+                                columnSeparatorWidth: columnSeparatorWidth,
+                                createdDateText: model.showCreatedDate ? presentationDate(result.note.createdAt) : nil,
+                                modifiedDateText: model.showModifiedDate ? presentationDate(result.note.modifiedAt) : nil
                             )
                             .background {
-                                GeometryReader { rowGeometry in
-                                    Color.clear.preference(
-                                        key: NoteRowBoundsPreferenceKey.self,
-                                        value: rowGeometry.frame(in: .named("note-table"))
-                                    )
+                                if result.id == model.results.first?.id {
+                                    rowBoundsSentinel(tableWidth: tableGeometry.size.width)
                                 }
                             }
                             .id(result.id)
@@ -83,13 +85,32 @@ struct NoteListView: View {
                 }
             }
             .coordinateSpace(name: "note-table")
-            .onPreferenceChange(NoteRowBoundsPreferenceKey.self) { bounds in
-                if let bounds { rowContentBounds = bounds }
+            .onPreferenceChange(NoteTableContentInsetsPreferenceKey.self) { insets in
+                if let insets { rowContentInsets = insets }
             }
         }
     }
 
     private var createdColumnWidth: CGFloat { 130 }
+
+    private func rowBoundsSentinel(tableWidth: CGFloat) -> some View {
+        GeometryReader { geometry in
+            let bounds = geometry.frame(in: .named("note-table"))
+            Color.clear.preference(key: NoteTableContentInsetsPreferenceKey.self, value: NoteTableContentInsets(
+                leading: max(bounds.minX, 0),
+                trailing: max(tableWidth - bounds.maxX, 0)
+            ))
+        }
+    }
+
+    private func presentationDate(_ date: Date) -> String {
+        PresentationDateCache.shared.string(
+            for: date,
+            locale: locale,
+            calendar: calendar,
+            timeZone: timeZone
+        )
+    }
 
     private func effectiveModifiedColumnWidth(tableWidth: CGFloat) -> CGFloat {
         min(max(CGFloat(storedModifiedColumnWidth), minimumDateColumnWidth), maximumModifiedColumnWidth(tableWidth: tableWidth))
@@ -97,7 +118,7 @@ struct NoteListView: View {
 
     private func maximumModifiedColumnWidth(tableWidth: CGFloat) -> CGFloat {
         let fallbackContentWidth = max(tableWidth - 44, 1)
-        let contentWidth = rowContentBounds?.width ?? fallbackContentWidth
+        let contentWidth = rowContentInsets.map { max(tableWidth - $0.leading - $0.trailing, 1) } ?? fallbackContentWidth
         let createdAllocation = model.showCreatedDate ? createdColumnWidth + columnSeparatorWidth : 0
         return max(
             minimumDateColumnWidth,
@@ -106,8 +127,8 @@ struct NoteListView: View {
     }
 
     private func columnHeader(tableWidth: CGFloat, modifiedWidth: CGFloat) -> some View {
-        let leadingInset = max(rowContentBounds?.minX ?? 8, 0)
-        let trailingInset = max(tableWidth - (rowContentBounds?.maxX ?? tableWidth - 36), 0)
+        let leadingInset = rowContentInsets?.leading ?? 8
+        let trailingInset = rowContentInsets?.trailing ?? 36
         return HStack(spacing: 0) {
             sortHeader("Title", field: .title)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -206,42 +227,29 @@ private struct NoteRow: View {
     let modifiedColumnWidth: CGFloat
     let createdColumnWidth: CGFloat
     let columnSeparatorWidth: CGFloat
+    let createdDateText: String?
+    let modifiedDateText: String?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
-            HStack(spacing: 4) {
-                Text(note.title)
-                    .font(.system(size: fontSize, weight: .regular))
-                    .lineLimit(1)
-                    .layoutPriority(2)
-                if duplicateTitle {
-                    Text(note.filename)
-                        .font(.system(size: max(9, fontSize - 2)))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                if showExcerpt, !excerpt.isEmpty {
-                    Text("— \(excerpt)")
-                        .font(.system(size: max(10, fontSize - 1)))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .clipped()
-            if showCreated {
+            rowText
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipped()
+            if showCreated, let createdDateText {
                 Color.clear.frame(width: columnSeparatorWidth)
-                Text(note.createdAt.formatted(date: .abbreviated, time: .shortened))
+                Text(createdDateText)
                     .font(.system(size: max(10, fontSize - 1)))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .padding(.horizontal, 4)
                     .frame(width: createdColumnWidth, alignment: .leading)
             }
-            if showModified {
+            if showModified, let modifiedDateText {
                 Color.clear.frame(width: columnSeparatorWidth)
-                Text(note.modifiedAt.formatted(date: .abbreviated, time: .shortened))
+                Text(modifiedDateText)
                     .font(.system(size: max(10, fontSize - 1)))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -251,12 +259,33 @@ private struct NoteRow: View {
         }
         .frame(minHeight: 16)
     }
+
+    private var rowText: Text {
+        var text = Text(note.title)
+            .font(.system(size: fontSize, weight: .regular))
+        if duplicateTitle {
+            text = text + Text("  \(note.filename)")
+                .font(.system(size: max(9, fontSize - 2)))
+                .foregroundStyle(.secondary)
+        }
+        if showExcerpt, !excerpt.isEmpty {
+            text = text + Text("  — \(excerpt)")
+                .font(.system(size: max(10, fontSize - 1)))
+                .foregroundStyle(.secondary)
+        }
+        return text
+    }
 }
 
-private struct NoteRowBoundsPreferenceKey: PreferenceKey {
-    static let defaultValue: CGRect? = nil
+private struct NoteTableContentInsets: Equatable {
+    let leading: CGFloat
+    let trailing: CGFloat
+}
 
-    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+private struct NoteTableContentInsetsPreferenceKey: PreferenceKey {
+    static let defaultValue: NoteTableContentInsets? = nil
+
+    static func reduce(value: inout NoteTableContentInsets?, nextValue: () -> NoteTableContentInsets?) {
         if let next = nextValue() { value = next }
     }
 }
