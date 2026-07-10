@@ -12,7 +12,6 @@ struct SettingsView: View {
                 Toggle("Show body excerpts", isOn: $model.showExcerpts)
                 Toggle("Show date modified", isOn: $model.showModifiedDate)
                 Toggle("Show date created", isOn: $model.showCreatedDate)
-                Toggle("Show word count", isOn: $model.showWordCount)
                 HStack { Text("Text size"); Slider(value: $model.listFontSize, in: 9...24, step: 1); Text("\(Int(model.listFontSize)) pt").monospacedDigit() }
                 Picker("Sort", selection: $model.sort.field) {
                     Text("Title").tag(NoteSortField.title)

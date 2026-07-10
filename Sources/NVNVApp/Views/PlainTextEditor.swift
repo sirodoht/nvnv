@@ -34,6 +34,7 @@ struct PlainTextEditor: NSViewRepresentable {
     let undoRegistry: EditorUndoRegistry
     let onChange: (String) -> Void
     let onSelectionChange: (NSRange) -> Void
+    let onEditingEnded: () -> Void
     let onFocusRequestHandled: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -167,6 +168,10 @@ struct PlainTextEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard !pushingState, let text = notification.object as? NSTextView else { return }
             parent.onSelectionChange(text.selectedRange())
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            parent.onEditingEnded()
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

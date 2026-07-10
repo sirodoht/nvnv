@@ -10,7 +10,6 @@ public struct LibrarySettings: Codable, Equatable, Sendable {
     public var showModifiedDate = true
     public var showCreatedDate = false
     public var showExcerpts = true
-    public var showWordCount = true
     public var confirmDeletion = true
     public var highlightSearch = true
     public var listFontSize = 11.0

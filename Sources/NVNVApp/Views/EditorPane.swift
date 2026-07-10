@@ -27,6 +27,7 @@ struct EditorPane: View {
                     undoRegistry: undoRegistry,
                     onChange: model.updateBody,
                     onSelectionChange: model.updateSelection,
+                    onEditingEnded: model.finishEditingBurst,
                     onFocusRequestHandled: model.consumeEditorFocusRequest
                 )
                 .id(note.id)

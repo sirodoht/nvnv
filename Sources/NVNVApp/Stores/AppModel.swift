@@ -10,7 +10,7 @@ final class AppModel {
     var libraryURL: URL?
     var notes: [Note] = []
     var results: [SearchResult] = []
-    var selection: Set<UUID> = [] { didSet { scheduleWordCount() } }
+    var selection: Set<UUID> = []
     var selectionKind: SelectionKind = .none
     var searchText = "" {
         didSet { if !isRenaming { query = searchText } }
@@ -36,7 +36,6 @@ final class AppModel {
     var showModifiedDate = true { didSet { persistSettingsSoon() } }
     var showCreatedDate = false { didSet { persistSettingsSoon() } }
     var showExcerpts = true { didSet { persistSettingsSoon() } }
-    var showWordCount = true { didSet { scheduleWordCount(); persistSettingsSoon() } }
     var confirmDeletion = true { didSet { persistSettingsSoon() } }
     var highlightSearch = true { didSet { persistSettingsSoon() } }
     var listFontSize = 11.0 { didSet { persistSettingsSoon() } }
@@ -50,7 +49,6 @@ final class AppModel {
     var editorCommand: EditorCommand?
     var editorCommandGeneration = 0
     private(set) var duplicateTitleKeys: Set<String> = []
-    private(set) var currentWordCount: Int?
 
     private let logger = Logger(subsystem: "app.nvnv", category: "library")
     private let scanner = LibraryScanner()
@@ -79,7 +77,7 @@ final class AppModel {
     private var renameOriginalQuery = ""
     private var priorExplicitQuery: String?
     private var settingsTask: Task<Void, Never>?
-    private var wordCountTask: Task<Void, Never>?
+    private var pendingListResort = false
     private var navigationHistory: [(String, Set<UUID>)] = []
 
     var selectedNote: Note? {
@@ -90,10 +88,6 @@ final class AppModel {
     var selectedResult: SearchResult? {
         guard let id = selectedNote?.id else { return nil }
         return results.first { $0.id == id }
-    }
-
-    var wordCount: Int? {
-        showWordCount ? currentWordCount : nil
     }
 
     var recognizedExtensions: Set<String> {
@@ -286,7 +280,13 @@ final class AppModel {
         updateVisibleResult(for: notes[index])
         scheduleJournal(for: notes[index])
         scheduleSave(for: id)
-        scheduleWordCount()
+    }
+
+    /// Completes a deferred list refresh when the editor gives up first responder.
+    /// Saves and journal writes are scheduled independently and are never delayed by this.
+    func finishEditingBurst() {
+        guard pendingListResort else { return }
+        refreshSearch()
     }
 
     func updateSelection(_ range: NSRange) {
@@ -526,6 +526,9 @@ final class AppModel {
     }
 
     private func refreshSearch() {
+        visibleResultTask?.cancel()
+        visibleResultTask = nil
+        pendingListResort = false
         searchGeneration += 1
         let generation = searchGeneration
         let query = SearchQuery(query)
@@ -605,23 +608,27 @@ final class AppModel {
     }
 
     private func updateVisibleResult(for note: Note) {
-        if SearchQuery(query).isEmpty {
-            visibleResultTask?.cancel()
-            visibleResultTask = Task { [weak self] in
-                do { try await Task.sleep(for: .milliseconds(40)) }
-                catch { return }
-                guard !Task.isCancelled, let self,
-                      let current = self.notes.first(where: { $0.id == note.id }) else { return }
-                var updated = self.results
-                if let index = updated.firstIndex(where: { $0.id == current.id }) {
-                    updated[index] = SearchResult(note: current, titleRanges: [], bodyRanges: [])
-                } else {
-                    updated.append(SearchResult(note: current, titleRanges: [], bodyRanges: []))
-                }
-                self.results = updated.sorted { SearchService.compare($0.note, $1.note, sort: self.sort) }
-            }
-        } else {
-            refreshSearch()
+        // Invalidate any in-flight search built from an older revision. Updating
+        // one visible value is cheap and, importantly, preserves its list index
+        // while the user is typing even when sorting by modification date.
+        searchGeneration += 1
+        searchTask?.cancel()
+        if let index = results.firstIndex(where: { $0.id == note.id }) {
+            let old = results[index]
+            results[index] = SearchResult(
+                note: note, titleRanges: old.titleRanges, bodyRanges: []
+            )
+        }
+
+        // Re-evaluate membership and sorting once the typing burst goes idle.
+        // The editor's focus-loss callback flushes this immediately when needed.
+        pendingListResort = true
+        visibleResultTask?.cancel()
+        visibleResultTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(650)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.refreshSearch()
         }
     }
 
@@ -634,25 +641,6 @@ final class AppModel {
         guard let cache else { return }
         Task.detached(priority: .utility) {
             try? cache.upsert(note)
-        }
-    }
-
-    private func scheduleWordCount() {
-        wordCountTask?.cancel()
-        guard showWordCount, selection.count == 1, let note = selectedNote else {
-            currentWordCount = nil
-            return
-        }
-        let noteID = note.id
-        let body = note.body
-        wordCountTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(120)) }
-            catch { return }
-            let count = await Task.detached(priority: .utility) {
-                body.split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }.count
-            }.value
-            guard !Task.isCancelled, let self, self.selection == [noteID] else { return }
-            self.currentWordCount = count
         }
     }
 
@@ -879,7 +867,6 @@ final class AppModel {
         showModifiedDate = settings.showModifiedDate
         showCreatedDate = settings.showCreatedDate
         showExcerpts = settings.showExcerpts
-        showWordCount = settings.showWordCount
         confirmDeletion = settings.confirmDeletion
         highlightSearch = settings.highlightSearch
         // Version 1 shipped with 13 pt as the default. Migrate only that exact
@@ -910,7 +897,6 @@ final class AppModel {
         settings.showModifiedDate = showModifiedDate
         settings.showCreatedDate = showCreatedDate
         settings.showExcerpts = showExcerpts
-        settings.showWordCount = showWordCount
         settings.confirmDeletion = confirmDeletion
         settings.highlightSearch = highlightSearch
         settings.listFontSize = listFontSize
