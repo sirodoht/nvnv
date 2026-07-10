@@ -5,8 +5,9 @@ struct SearchBar: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(systemName: model.isRenaming ? "pencil" : "magnifyingglass")
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             TextField(
                 model.isRenaming ? "Rename Note" : "Search notes or enter a new title",
@@ -16,6 +17,7 @@ struct SearchBar: View {
                 )
             )
                 .textFieldStyle(.plain)
+                .font(.system(size: 12))
                 .focused($focused)
                 .onSubmit { Task { await model.submitSearch() } }
                 .onKeyPress(.upArrow) { model.moveSelection(by: -1); return .handled }
@@ -26,14 +28,23 @@ struct SearchBar: View {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .buttonStyle(.plain)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .help(model.isRenaming ? "Cancel Rename" : "Clear Search")
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 36)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
-        .padding([.horizontal, .top], 10)
+        .padding(.horizontal, 8)
+        .frame(height: 24)
+        .background(.background, in: RoundedRectangle(cornerRadius: 5))
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(
+                    focused ? Color.accentColor : Color.secondary.opacity(0.28),
+                    lineWidth: focused ? 2 : 1
+                )
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
         .onChange(of: model.focusSearchGeneration) { _, _ in focused = true }
         .onAppear { focused = true }
     }

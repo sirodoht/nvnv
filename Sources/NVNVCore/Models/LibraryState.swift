@@ -1,7 +1,7 @@
 import Foundation
 
 public struct LibrarySettings: Codable, Equatable, Sendable {
-    public var schemaVersion = 1
+    public var schemaVersion = 3
     public var query = ""
     public var selectedNoteIDs: Set<UUID> = []
     public var selectionKind: SelectionKind = .none
@@ -13,9 +13,9 @@ public struct LibrarySettings: Codable, Equatable, Sendable {
     public var showWordCount = true
     public var confirmDeletion = true
     public var highlightSearch = true
-    public var listFontSize = 13.0
+    public var listFontSize = 11.0
     public var editorFontName = ""
-    public var editorFontSize = 14.0
+    public var editorFontSize = 12.0
     public var softTabs = false
     public var tabWidth = 4
     public var tabIndents = true

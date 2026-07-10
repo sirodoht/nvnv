@@ -50,7 +50,7 @@ struct PlainTextEditor: NSViewRepresentable {
         text.isHorizontallyResizable = false
         text.autoresizingMask = [.width]
         text.textContainer?.widthTracksTextView = true
-        text.textContainerInset = NSSize(width: 22, height: 18)
+        text.textContainerInset = NSSize(width: 10, height: 8)
         text.isRichText = false
         text.importsGraphics = false
         text.allowsUndo = true
@@ -75,7 +75,7 @@ struct PlainTextEditor: NSViewRepresentable {
         text.isSelectable = true
         text.sessionUndoManager = undoRegistry.manager(for: note.id)
         let chosen = fontName.isEmpty ? nil : NSFont(name: fontName, size: fontSize)
-        let desiredFont = chosen ?? NSFont.systemFont(ofSize: fontSize)
+        let desiredFont = chosen ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         if text.font != desiredFont { text.font = desiredFont }
         if text.string != note.body {
             coordinator.pushingState = true

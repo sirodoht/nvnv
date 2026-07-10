@@ -15,7 +15,8 @@ struct ContentView: View {
                 libraryView
             }
         }
-        .frame(minWidth: 680, minHeight: 560)
+        .frame(minWidth: 440, minHeight: 560)
+        .background(WindowChromeConfigurator())
         .task { await model.restoreLastLibrary() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { Task { try? await model.flushAll() } }
@@ -38,23 +39,30 @@ struct ContentView: View {
             SearchBar(model: model)
             if model.isReadOnly {
                 Label("Read-only — another nvnv process owns this library", systemImage: "lock.fill")
-                    .font(.caption).foregroundStyle(.orange).padding(.top, 6)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.orange)
+                    .padding(.vertical, 2)
             }
             GeometryReader { proxy in
-                let usable = max(proxy.size.height - 7, 1)
+                let dividerHeight: CGFloat = 10
+                let usable = max(proxy.size.height - dividerHeight, 1)
                 VStack(spacing: 0) {
                     NoteListView(model: model)
                         .frame(height: usable * model.dividerFraction)
                     Color.clear
-                        .frame(height: 7)
+                        .frame(height: dividerHeight)
                         .overlay {
                             Capsule()
                                 .fill(.tertiary)
-                                .frame(width: 30, height: 3)
+                                .frame(width: 30, height: 2)
                         }
-                        .background(.separator.opacity(0.35))
+                        .background(.separator.opacity(0.25))
                         .contentShape(Rectangle())
-                        .gesture(DragGesture()
+                        .onHover { hovering in
+                            if hovering { NSCursor.resizeUpDown.push() }
+                            else { NSCursor.pop() }
+                        }
+                        .gesture(DragGesture(coordinateSpace: .global)
                             .onChanged { value in
                                 if dividerDragStart == nil { dividerDragStart = model.dividerFraction }
                                 model.dividerFraction = min(max((dividerDragStart ?? model.dividerFraction) + value.translation.height / usable, 0.18), 0.76)
@@ -63,40 +71,52 @@ struct ContentView: View {
                     EditorPane(model: model, undoRegistry: undoRegistry)
                 }
             }
-            statusBar
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button { model.navigateBack() } label: { Label("Back", systemImage: "arrow.uturn.backward") }
-                    .disabled(model.libraryURL == nil)
-                Button { model.startRename() } label: { Label("Rename", systemImage: "pencil") }
-                    .disabled(model.isReadOnly || model.selection.count != 1)
-                Button { model.revealSelectedNote() } label: { Label("Show in Finder", systemImage: "folder") }
-                    .disabled(model.selection.count != 1)
-            }
-        }
+    }
+}
+
+private struct WindowChromeConfigurator: NSViewRepresentable {
+    private static let titleIdentifier = NSUserInterfaceItemIdentifier("nvnv.centered-window-title")
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        configureWhenAttached(view)
+        return view
     }
 
-    private var statusBar: some View {
-        HStack {
-            if let message = model.transientMessage {
-                Text(message).lineLimit(1)
-            } else if !model.scanIssues.isEmpty {
-                Label("\(model.scanIssues.count) file \(model.scanIssues.count == 1 ? "issue" : "issues")", systemImage: "exclamationmark.triangle")
-            } else {
-                Text(model.libraryURL?.path(percentEncoded: false) ?? "")
-            }
-            Spacer()
-            if model.selection.count > 1 { Text("\(model.selection.count) selected") }
-            else if let count = model.wordCount { Text("\(count) \(count == 1 ? "word" : "words")") }
-            Text("\(model.results.count) \(model.results.count == 1 ? "note" : "notes")")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .frame(height: 25)
-        .background(.bar)
+    func updateNSView(_ view: NSView, context: Context) {
+        configureWhenAttached(view)
     }
+
+    private func configureWhenAttached(_ view: NSView) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.titleVisibility = .hidden
+            guard
+                let closeButton = window.standardWindowButton(.closeButton),
+                let titlebar = closeButton.superview,
+                let contentView = window.contentView
+            else { return }
+
+            if titlebar.subviews.contains(where: { $0.identifier == Self.titleIdentifier }) { return }
+
+            let label = DraggableWindowTitle(labelWithString: window.title)
+            label.identifier = Self.titleIdentifier
+            label.font = .systemFont(ofSize: 13, weight: .semibold)
+            label.textColor = .labelColor
+            label.alignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            titlebar.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            ])
+        }
+    }
+}
+
+private final class DraggableWindowTitle: NSTextField {
+    override var mouseDownCanMoveWindow: Bool { true }
 }
 
 private struct WelcomeView: View {

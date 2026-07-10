@@ -39,9 +39,9 @@ final class AppModel {
     var showWordCount = true { didSet { scheduleWordCount(); persistSettingsSoon() } }
     var confirmDeletion = true { didSet { persistSettingsSoon() } }
     var highlightSearch = true { didSet { persistSettingsSoon() } }
-    var listFontSize = 13.0 { didSet { persistSettingsSoon() } }
+    var listFontSize = 11.0 { didSet { persistSettingsSoon() } }
     var editorFontName = "" { didSet { persistSettingsSoon() } }
-    var editorFontSize = 14.0 { didSet { persistSettingsSoon() } }
+    var editorFontSize = 12.0 { didSet { persistSettingsSoon() } }
     var softTabs = false { didSet { persistSettingsSoon() } }
     var tabWidth = 4 { didSet { persistSettingsSoon() } }
     var tabIndents = true { didSet { persistSettingsSoon() } }
@@ -882,9 +882,17 @@ final class AppModel {
         showWordCount = settings.showWordCount
         confirmDeletion = settings.confirmDeletion
         highlightSearch = settings.highlightSearch
-        listFontSize = settings.listFontSize
+        // Version 1 shipped with 13 pt as the default. Migrate only that exact
+        // legacy default; preserve sizes the user deliberately selected.
+        listFontSize = settings.schemaVersion < 2 && settings.listFontSize == 13
+            ? 11
+            : settings.listFontSize
         editorFontName = settings.editorFontName
-        editorFontSize = settings.editorFontSize
+        // Version 2 and earlier shipped with 14 pt as the default editor size.
+        // Migrate only that exact default and preserve deliberate custom sizes.
+        editorFontSize = settings.schemaVersion < 3 && settings.editorFontSize == 14
+            ? 12
+            : settings.editorFontSize
         softTabs = settings.softTabs
         tabWidth = settings.tabWidth
         tabIndents = settings.tabIndents
