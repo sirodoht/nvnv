@@ -104,16 +104,35 @@ public final class SQLiteCache: @unchecked Sendable {
     }
 
     public func candidateIDs(for normalizedTerm: String) throws -> Set<UUID>? {
-        guard fts5TrigramAvailable, normalizedTerm.count >= 3 else { return nil }
+        try candidateIDs(forNormalizedTerms: [normalizedTerm])
+    }
+
+    /// Returns an exact-search candidate superset for the eligible terms.
+    ///
+    /// Terms shorter than three characters cannot use the trigram index. If no
+    /// term is eligible (or trigram FTS is unavailable), `nil` asks the caller
+    /// to fall back to scanning every document. Notes whose index row may lag
+    /// can be supplied in `conservativeIDs`; they are always retained.
+    public func candidateIDs(
+        forNormalizedTerms normalizedTerms: [String],
+        conservativelyIncluding conservativeIDs: Set<UUID> = [],
+        isCancelled: @Sendable () -> Bool = { false }
+    ) throws -> Set<UUID>? {
+        let eligibleTerms = normalizedTerms.filter { !$0.isEmpty && $0.count >= 3 }
+        guard fts5TrigramAvailable, !eligibleTerms.isEmpty else { return nil }
         return try withLock {
-            let statement = try prepare("SELECT note_id FROM note_search WHERE note_search MATCH ?")
-            defer { sqlite3_finalize(statement) }
-            bind("\"\(normalizedTerm.replacingOccurrences(of: "\"", with: "\"\""))\"", to: statement, at: 1)
-            var ids: Set<UUID> = []
-            while sqlite3_step(statement) == SQLITE_ROW {
-                if let id = UUID(uuidString: text(statement, 0)) { ids.insert(id) }
+            var intersection: Set<UUID>?
+            for term in eligibleTerms {
+                if isCancelled() { throw CancellationError() }
+                let ids = try candidateIDsUnlocked(for: term, isCancelled: isCancelled)
+                if let current = intersection {
+                    intersection = current.intersection(ids)
+                } else {
+                    intersection = ids
+                }
+                if intersection?.isEmpty == true { break }
             }
-            return ids
+            return (intersection ?? []).union(conservativeIDs)
         }
     }
 
@@ -177,6 +196,21 @@ public final class SQLiteCache: @unchecked Sendable {
             bind(TextNormalizer.normalize(note.body), to: insert, at: 3)
             try stepDone(insert)
         }
+    }
+
+    private func candidateIDsUnlocked(
+        for normalizedTerm: String,
+        isCancelled: @Sendable () -> Bool
+    ) throws -> Set<UUID> {
+        let statement = try prepare("SELECT note_id FROM note_search WHERE note_search MATCH ?")
+        defer { sqlite3_finalize(statement) }
+        bind("\"\(normalizedTerm.replacingOccurrences(of: "\"", with: "\"\""))\"", to: statement, at: 1)
+        var ids: Set<UUID> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if isCancelled() { throw CancellationError() }
+            if let id = UUID(uuidString: text(statement, 0)) { ids.insert(id) }
+        }
+        return ids
     }
 
     private static func probeTrigram(database: OpaquePointer?) -> Bool {

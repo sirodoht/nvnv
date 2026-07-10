@@ -69,6 +69,7 @@ final class AppModel {
     private var lastAppliedSearchDocumentsGeneration: UInt?
     private var lastAppliedSearchQuery: SearchQuery?
     private var staleSearchDocumentIDs: Set<UUID> = []
+    private var cacheIndexedSearchVersions: [UUID: SearchIndexVersion] = [:]
     private var saveTasks: [UUID: Task<Void, Never>] = [:]
     private var deadlineTasks: [UUID: Task<Void, Never>] = [:]
     private var journalTasks: [UUID: Task<Void, Never>] = [:]
@@ -175,7 +176,20 @@ final class AppModel {
             selectionKind = selection.isEmpty ? .none : settings.selectionKind
             searchText = settings.query
             query = settings.query
-            if writable { try? cache?.replaceAll(with: scan.notes) }
+            if writable, let cache {
+                do {
+                    try cache.replaceAll(with: scan.notes)
+                    cacheIndexedSearchVersions = searchIndexVersions(for: scan.notes)
+                } catch {
+                    cacheIndexedSearchVersions = [:]
+                    logger.error("Unable to refresh search cache: \(String(describing: error), privacy: .public)")
+                }
+            } else {
+                // A read-only cache may have been produced under an older
+                // normalization locale or may lag external file changes. With
+                // no way to refresh it, treat every current note conservatively.
+                cacheIndexedSearchVersions = [:]
+            }
             await replayJournal()
             watcher = DirectoryWatcher(url: url) { [weak self] in
                 Task { @MainActor in await self?.reconcileExternalChanges() }
@@ -319,6 +333,7 @@ final class AppModel {
                 _ = try await repository.trash(note: note)
                 notes.removeAll { $0.id == id }
                 searchDocuments[id] = nil
+                cacheIndexedSearchVersions[id] = nil
                 try? cache?.remove(id: id)
             } catch { errorMessage = error.localizedDescription }
         }
@@ -539,6 +554,11 @@ final class AppModel {
         let query = SearchQuery(query)
         let cachedDocuments = searchDocuments
         let staleNotes = notes.filter { staleSearchDocumentIDs.contains($0.id) }
+        let normalizedTerms = query.terms.map { TextNormalizer.normalize($0.value) }
+        let conservativeIDs = Set(notes.compactMap { note in
+            cacheIndexedSearchVersions[note.id] == SearchIndexVersion(note) ? nil : note.id
+        })
+        let cache = cache
         let sort = sort
         let refinementDocuments: [SearchDocument]? = {
             guard staleNotes.isEmpty,
@@ -548,16 +568,33 @@ final class AppModel {
             let candidates = results.compactMap { cachedDocuments[$0.id] }
             return candidates.count == results.count ? candidates : nil
         }()
-        let candidateCount = refinementDocuments?.count ?? cachedDocuments.count
-        let shouldDebounce = SearchService.shouldDebounce(candidateCount: candidateCount)
         searchTask?.cancel()
         searchTask = Task { [weak self] in
-            if shouldDebounce {
-                do { try await Task.sleep(for: .milliseconds(30)) }
-                catch { return }
-            }
             guard !Task.isCancelled else { return }
             let worker = Task.detached(priority: .userInitiated) {
+                let candidateIDs: Set<UUID>?
+                if refinementDocuments != nil {
+                    candidateIDs = nil
+                } else {
+                    do {
+                        candidateIDs = try cache?.candidateIDs(
+                            forNormalizedTerms: normalizedTerms,
+                            conservativelyIncluding: conservativeIDs,
+                            isCancelled: { Task.isCancelled }
+                        )
+                    } catch {
+                        candidateIDs = nil
+                    }
+                }
+                let candidateCount = refinementDocuments?.count
+                    ?? candidateIDs?.count
+                    ?? cachedDocuments.count
+                if SearchService.shouldDebounce(candidateCount: candidateCount) {
+                    do { try await Task.sleep(for: .milliseconds(30)) }
+                    catch { return (found: [SearchResult](), refreshed: [SearchDocument]()) }
+                }
+                if Task.isCancelled { return (found: [SearchResult](), refreshed: [SearchDocument]()) }
+
                 var documents = cachedDocuments
                 var refreshed: [SearchDocument] = []
                 refreshed.reserveCapacity(staleNotes.count)
@@ -567,7 +604,10 @@ final class AppModel {
                     documents[note.id] = document
                     refreshed.append(document)
                 }
-                let candidates = refinementDocuments ?? Array(documents.values)
+                if Task.isCancelled { return (found: [SearchResult](), refreshed: [SearchDocument]()) }
+                let candidates = refinementDocuments
+                    ?? candidateIDs.map { ids in documents.values.filter { ids.contains($0.id) } }
+                    ?? Array(documents.values)
                 let found = SearchService.search(
                     query, in: candidates, sort: sort,
                     isCancelled: { Task.isCancelled }
@@ -659,11 +699,43 @@ final class AppModel {
 
     private func scheduleCacheUpsert(_ note: Note) {
         guard let cache else { return }
-        Task.detached(priority: .utility) {
-            try? cache.upsert(note)
+        let version = SearchIndexVersion(note)
+        Task { [weak self] in
+            let succeeded = await Task.detached(priority: .utility) {
+                do {
+                    try cache.upsert(note)
+                    return true
+                } catch {
+                    return false
+                }
+            }.value
+            guard succeeded, let self, self.cache === cache,
+                  let current = self.notes.first(where: { $0.id == note.id }),
+                  SearchIndexVersion(current) == version else { return }
+            self.cacheIndexedSearchVersions[note.id] = version
         }
     }
 
+    private func scheduleCacheReplaceAll(_ notes: [Note]) {
+        guard let cache else { return }
+        let versions = searchIndexVersions(for: notes)
+        Task { [weak self] in
+            let succeeded = await Task.detached(priority: .utility) {
+                do {
+                    try cache.replaceAll(with: notes)
+                    return true
+                } catch {
+                    return false
+                }
+            }.value
+            guard succeeded, let self, self.cache === cache else { return }
+            self.cacheIndexedSearchVersions = versions
+        }
+    }
+
+    private func searchIndexVersions(for notes: [Note]) -> [UUID: SearchIndexVersion] {
+        Dictionary(uniqueKeysWithValues: notes.map { ($0.id, SearchIndexVersion($0)) })
+    }
     private func scheduleJournal(for note: Note) {
         guard journal != nil else { return }
         journalTasks[note.id]?.cancel()
@@ -842,8 +914,8 @@ final class AppModel {
             staleSearchDocumentIDs.removeAll()
             recomputeDuplicateTitleKeys()
             scanIssues = scan.issues
-            if !isReadOnly, let cache {
-                Task.detached(priority: .utility) { try? cache.replaceAll(with: reconciled) }
+            if !isReadOnly, cache != nil {
+                scheduleCacheReplaceAll(reconciled)
             }
             refreshSearch()
         } catch { errorMessage = error.localizedDescription }
@@ -937,6 +1009,18 @@ final class AppModel {
             guard !Task.isCancelled, let settingsRepository else { return }
             try? await settingsRepository.save(settingsSnapshot())
         }
+    }
+}
+
+private struct SearchIndexVersion: Equatable, Sendable {
+    let revision: Int
+    let lastSavedHash: String
+    let title: String
+
+    init(_ note: Note) {
+        revision = note.revision
+        lastSavedHash = note.lastSavedHash
+        title = note.title
     }
 }
 

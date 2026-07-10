@@ -60,6 +60,57 @@ struct FileCoreTests {
             #expect(try cache?.cachedNotes().first?.body == "body")
         }
     }
+
+    @Test func trigramCandidatesNormalizeUnicodeAndFallBackForShortTerms() throws {
+        guard SQLiteCache.runtimeSupportsFTS5Trigram() else { return }
+        try withTemporaryDirectory { root in
+            let cafe = Note(title: "Café notes", body: "Crème brûlée", filename: "Café notes.txt")
+            let other = Note(title: "Other", body: "ordinary", filename: "Other.txt")
+            let cache = try SQLiteCache(url: root.appendingPathComponent("index.sqlite3"))
+            try cache.replaceAll(with: [cafe, other])
+
+            let candidates = try cache.candidateIDs(
+                forNormalizedTerms: [TextNormalizer.normalize("CAFÉ")]
+            )
+            #expect(candidates == [cafe.id])
+            #expect(try cache.candidateIDs(
+                forNormalizedTerms: [TextNormalizer.normalize("fé")]
+            ) == nil)
+        }
+    }
+
+    @Test func trigramCandidatesIntersectEligibleTerms() throws {
+        guard SQLiteCache.runtimeSupportsFTS5Trigram() else { return }
+        try withTemporaryDirectory { root in
+            let both = Note(title: "Alpha", body: "beta", filename: "Both.txt")
+            let alpha = Note(title: "Alpha", body: "only", filename: "Alpha.txt")
+            let beta = Note(title: "Other", body: "beta", filename: "Beta.txt")
+            let cache = try SQLiteCache(url: root.appendingPathComponent("index.sqlite3"))
+            try cache.replaceAll(with: [both, alpha, beta])
+
+            #expect(try cache.candidateIDs(
+                forNormalizedTerms: ["alpha", "beta"]
+            ) == [both.id])
+            #expect(try cache.candidateIDs(
+                forNormalizedTerms: ["alpha", "be"]
+            ) == [both.id, alpha.id])
+        }
+    }
+
+    @Test func trigramCandidatesConservativelyIncludeStaleNotes() throws {
+        guard SQLiteCache.runtimeSupportsFTS5Trigram() else { return }
+        try withTemporaryDirectory { root in
+            let stale = Note(title: "Draft", body: "old body", filename: "Draft.txt")
+            let cache = try SQLiteCache(url: root.appendingPathComponent("index.sqlite3"))
+            try cache.replaceAll(with: [stale])
+
+            let candidates = try cache.candidateIDs(
+                forNormalizedTerms: ["unsaved"],
+                conservativelyIncluding: [stale.id]
+            )
+            #expect(candidates == [stale.id])
+        }
+    }
 }
 
 private func withTemporaryDirectory<T>(_ operation: (URL) throws -> T) throws -> T {
