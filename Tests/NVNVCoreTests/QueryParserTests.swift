@@ -35,6 +35,49 @@ struct QueryParserTests {
         #expect(SearchService.search(SearchQuery("CAFE\u{301}"), in: [note], sort: .init()).count == 1)
     }
 
+    @Test func asciiNormalizationProducesCompactLowercaseUTF8() {
+        let input = "ASCII Title 123!?"
+        let expected = Data("ascii title 123!?".utf8)
+        #expect(TextNormalizer.normalize(input) == "ascii title 123!?")
+        #expect(TextNormalizer.normalizedUTF8(input) == expected)
+
+        let note = Note(title: "PROJECT ALPHA", body: "A FAST ASCII BODY", filename: "PROJECT ALPHA.txt")
+        let document = SearchDocument(note: note)
+        #expect(SearchService.search(SearchQuery("project fast"), in: [document], sort: .init()).map(\.id) == [note.id])
+    }
+
+    @Test func unicodeNormalizationPreservesCompatibilityAndDiacriticSemantics() {
+        let decomposedCafe = "Cafe\u{301}"
+        let representativeText = ["", "plain ASCII", decomposedCafe, "CAFÉ", "ＷＩＤＴＨ", "naïve — straße"]
+        for text in representativeText {
+            #expect(TextNormalizer.normalizedUTF8(text) == Data(TextNormalizer.normalize(text).utf8))
+        }
+
+        let note = Note(
+            title: "ＷＩＤＴＨ Café", body: "naïve coöperation and straße",
+            filename: "Unicode.txt"
+        )
+        let document = SearchDocument(note: note)
+
+        #expect(TextNormalizer.normalize(decomposedCafe) == TextNormalizer.normalize("CAFÉ"))
+        #expect(TextNormalizer.normalizedUTF8(decomposedCafe) == TextNormalizer.normalizedUTF8("CAFÉ"))
+        #expect(SearchService.search(SearchQuery("width cafe"), in: [document], sort: .init()).map(\.id) == [note.id])
+        #expect(
+            SearchService.search(SearchQuery("naive cooperation"), in: [document], sort: .init()).map(\.id) == [note.id]
+        )
+        #expect(SearchService.search(SearchQuery("STRASSE"), in: [document], sort: .init()).map(\.id) == [note.id])
+    }
+
+    @Test func mixedASCIIAndUnicodeBodiesUseTheSameSearchSemantics() {
+        let note = Note(
+            title: "Mixed Note", body: "ordinary ASCII prefix — CAFÉ ＷＡＴＥＲ suffix",
+            filename: "Mixed Note.txt"
+        )
+        let document = SearchDocument(note: note)
+        #expect(SearchService.search(SearchQuery("ordinary"), in: [document], sort: .init()).map(\.id) == [note.id])
+        #expect(SearchService.search(SearchQuery("cafe water"), in: [document], sort: .init()).map(\.id) == [note.id])
+    }
+
     @Test func automaticTitleSelectionPrefersExactThenShortestPrefix() {
         let notes = [
             Note(title: "Project Alpha", body: "", filename: "Project Alpha.txt"),
@@ -77,6 +120,15 @@ struct QueryParserTests {
         metadataOnly.modifiedAt = .now.addingTimeInterval(30)
         let refreshed = document.replacingMetadata(with: metadataOnly)
         #expect(SearchService.search(SearchQuery("interstellar"), in: [refreshed], sort: .init()).first?.note.modifiedAt == metadataOnly.modifiedAt)
+        #expect(refreshed.normalizedTitleBytes == document.normalizedTitleBytes)
+        #expect(refreshed.normalizedBodyBytes == document.normalizedBodyBytes)
+    }
+
+    @Test func cachedDocumentsRetainOnlyOneNormalizedBodyRepresentation() {
+        let document = SearchDocument(note: Note(title: "Title", body: "A sizeable body", filename: "Title.txt"))
+        let storedPropertyNames = Set(Mirror(reflecting: document).children.compactMap(\.label))
+        #expect(storedPropertyNames.contains("normalizedBodyBytes"))
+        #expect(!storedPropertyNames.contains("normalizedBody"))
     }
 
     @Test func cancellableSearchStopsBeforePublishingPartialResults() {

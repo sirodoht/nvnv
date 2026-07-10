@@ -2,10 +2,47 @@ import Foundation
 
 public enum TextNormalizer {
     public static func normalize(_ value: String) -> String {
+        if let bytes = asciiFoldedBytes(value) {
+            return String(decoding: bytes, as: UTF8.self)
+        }
+        return fullyNormalize(value)
+    }
+
+    /// Produces the same normalized representation as ``normalize(_:)`` without
+    /// retaining an intermediate `String`. Search documents use this for note
+    /// bodies, which are commonly much larger than titles.
+    public static func normalizedUTF8(_ value: String) -> Data {
+        if let bytes = asciiFoldedBytes(value) {
+            return Data(bytes)
+        }
+        return Data(fullyNormalize(value).utf8)
+    }
+
+    private static func fullyNormalize(_ value: String) -> String {
         value
             .precomposedStringWithCompatibilityMapping
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
     }
+
+    private static func asciiFoldedBytes(_ value: String) -> [UInt8]? {
+        // Turkish and Azerbaijani have locale-specific casing for ASCII "I".
+        // Falling back for those locales preserves Foundation's existing
+        // locale-sensitive behavior exactly.
+        guard asciiCaseFoldingIsLocaleIndependent else { return nil }
+
+        var output: [UInt8] = []
+        output.reserveCapacity(value.utf8.count)
+        for byte in value.utf8 {
+            guard byte < 0x80 else { return nil }
+            output.append(byte >= 0x41 && byte <= 0x5A ? byte + 0x20 : byte)
+        }
+        return output
+    }
+
+    private static let asciiCaseFoldingIsLocaleIndependent: Bool = {
+        let identifier = Locale.current.identifier.lowercased()
+        return !identifier.hasPrefix("tr") && !identifier.hasPrefix("az")
+    }()
 }
 
 public struct SearchResult: Identifiable, Hashable, Sendable {
@@ -26,7 +63,6 @@ public struct SearchResult: Identifiable, Hashable, Sendable {
 public struct SearchDocument: Identifiable, Hashable, Sendable {
     public let note: Note
     public let normalizedTitle: String
-    public let normalizedBody: String
     public let normalizedTitleBytes: Data
     public let normalizedBodyBytes: Data
     public let excerpt: String
@@ -35,27 +71,25 @@ public struct SearchDocument: Identifiable, Hashable, Sendable {
     public init(note: Note) {
         self.note = note
         normalizedTitle = TextNormalizer.normalize(note.title)
-        normalizedBody = TextNormalizer.normalize(note.body)
         normalizedTitleBytes = Data(normalizedTitle.utf8)
-        normalizedBodyBytes = Data(normalizedBody.utf8)
+        normalizedBodyBytes = TextNormalizer.normalizedUTF8(note.body)
         excerpt = SearchService.excerpt(from: note.body)
     }
 
     public func replacingMetadata(with note: Note) -> SearchDocument {
         SearchDocument(
             note: note, normalizedTitle: normalizedTitle,
-            normalizedBody: normalizedBody, normalizedTitleBytes: normalizedTitleBytes,
-            normalizedBodyBytes: normalizedBodyBytes, excerpt: excerpt
+            normalizedTitleBytes: normalizedTitleBytes, normalizedBodyBytes: normalizedBodyBytes,
+            excerpt: excerpt
         )
     }
 
     private init(
-        note: Note, normalizedTitle: String, normalizedBody: String,
-        normalizedTitleBytes: Data, normalizedBodyBytes: Data, excerpt: String
+        note: Note, normalizedTitle: String, normalizedTitleBytes: Data,
+        normalizedBodyBytes: Data, excerpt: String
     ) {
         self.note = note
         self.normalizedTitle = normalizedTitle
-        self.normalizedBody = normalizedBody
         self.normalizedTitleBytes = normalizedTitleBytes
         self.normalizedBodyBytes = normalizedBodyBytes
         self.excerpt = excerpt
@@ -132,10 +166,10 @@ public enum SearchService {
 
     private static func preparedTerms(
         in query: SearchQuery
-    ) -> [(original: String, normalized: String, bytes: Data)] {
-        query.terms.compactMap { term in
-            let normalized = TextNormalizer.normalize(term.value)
-            return normalized.isEmpty ? nil : (term.value, normalized, Data(normalized.utf8))
+    ) -> [(original: String, bytes: Data)] {
+        query.terms.compactMap { term -> (original: String, bytes: Data)? in
+            let bytes = TextNormalizer.normalizedUTF8(term.value)
+            return bytes.isEmpty ? nil : (term.value, bytes)
         }
     }
 
@@ -156,7 +190,7 @@ public enum SearchService {
 
     private static func result(
         for document: SearchDocument,
-        terms: [(original: String, normalized: String, bytes: Data)],
+        terms: [(original: String, bytes: Data)],
         includeRanges: Bool
     ) -> SearchResult? {
         let note = document.note
