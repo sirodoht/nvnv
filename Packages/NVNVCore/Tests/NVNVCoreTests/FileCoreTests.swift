@@ -113,6 +113,33 @@ struct FileCoreTests {
             #expect(candidates == [stale.id])
         }
     }
+
+    @Test func cacheAppliesIncrementalUpsertsAndRemovals() throws {
+        try withTemporaryDirectory { root in
+            let retained = Note(title: "Retained", body: "old", filename: "Retained.txt")
+            let removed = Note(title: "Removed", body: "gone", filename: "Reused.txt")
+            let cache = try SQLiteCache(url: root.appendingPathComponent("index.sqlite3"))
+            try cache.replaceAll(with: [retained, removed])
+
+            var changed = retained
+            changed.body = "new"
+            changed.revision += 1
+            let replacement = Note(title: "Replacement", body: "fresh", filename: "Reused.txt")
+            try cache.applyChanges(upserting: [changed, replacement], removing: [removed.id])
+
+            let cachedByID = Dictionary(uniqueKeysWithValues: try cache.cachedNotes().map { ($0.id, $0) })
+            #expect(cachedByID.count == 2)
+            #expect(cachedByID[retained.id]?.body == "new")
+            #expect(cachedByID[removed.id] == nil)
+            #expect(cachedByID[replacement.id]?.body == "fresh")
+
+            if cache.fts5TrigramAvailable {
+                #expect(try cache.candidateIDs(forNormalizedTerms: ["gone"]) == [])
+                #expect(try cache.candidateIDs(forNormalizedTerms: ["fresh"]) == [replacement.id])
+            }
+        }
+    }
+
     @Test func unchangedFileReusesCachedBodyWithoutReadingOrHashing() throws {
         try withTemporaryDirectory { root in
             let file = root.appendingPathComponent("Stable.txt")
@@ -127,6 +154,51 @@ struct FileCoreTests {
 
             #expect(result.notes[0].body == "body supplied by cache")
             #expect(result.notes[0].lastSavedHash == cached.lastSavedHash)
+        }
+    }
+
+    @Test func targetedScanReadsOnlyChangedPathsAndRepresentsDeletionByOmission() throws {
+        try withTemporaryDirectory { root in
+            let changedURL = root.appendingPathComponent("Changed.txt")
+            let stableURL = root.appendingPathComponent("Stable.txt")
+            try Data("old".utf8).write(to: changedURL)
+            try Data("stable".utf8).write(to: stableURL)
+            let scanner = LibraryScanner()
+            let initial = try scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes
+            let cached = Dictionary(uniqueKeysWithValues: initial.map { ($0.filename, $0) })
+
+            try Data("new".utf8).write(to: changedURL)
+            let changed = try scanner.scan(
+                directory: root, paths: [changedURL], recognizedExtensions: ["txt"], cached: cached
+            )
+            #expect(changed.notes.count == 1)
+            #expect(changed.notes[0].filename == "Changed.txt")
+            #expect(changed.notes[0].body == "new")
+
+            try FileManager.default.removeItem(at: changedURL)
+            let deleted = try scanner.scan(
+                directory: root, paths: [changedURL], recognizedExtensions: ["txt"], cached: cached
+            )
+            #expect(deleted.notes.isEmpty)
+        }
+    }
+
+    @Test func targetedScanRecognizesRenameWhenOnlyNewPathIsReported() throws {
+        try withTemporaryDirectory { root in
+            let original = root.appendingPathComponent("Original.txt")
+            let renamed = root.appendingPathComponent("Renamed.txt")
+            try Data("body".utf8).write(to: original)
+            let scanner = LibraryScanner()
+            let cached = try scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes[0]
+            try FileManager.default.moveItem(at: original, to: renamed)
+
+            let result = try scanner.scan(
+                directory: root, paths: [renamed], recognizedExtensions: ["txt"],
+                cached: [cached.filename: cached]
+            )
+            #expect(result.notes.count == 1)
+            #expect(result.notes[0].id == cached.id)
+            #expect(result.notes[0].filename == "Renamed.txt")
         }
     }
 

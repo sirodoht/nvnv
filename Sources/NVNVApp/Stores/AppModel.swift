@@ -838,26 +838,71 @@ final class AppModel {
         }
     }
 
-    private func scheduleCacheReplaceAll(_ notes: [Note]) {
-        guard let cache else { return }
+    private func scheduleCacheChanges(upserting notes: [Note], removing ids: Set<UUID>) {
+        guard let cache, !notes.isEmpty || !ids.isEmpty else { return }
         let versions = searchIndexVersions(for: notes)
         Task { [weak self] in
             let succeeded = await Task.detached(priority: .utility) {
                 do {
-                    try cache.replaceAll(with: notes)
+                    try cache.applyChanges(upserting: notes, removing: ids)
                     return true
                 } catch {
                     return false
                 }
             }.value
             guard succeeded, let self, self.cache === cache else { return }
-            self.cacheIndexedSearchVersions = versions
+            for id in ids where !self.notes.contains(where: { $0.id == id }) {
+                self.cacheIndexedSearchVersions.removeValue(forKey: id)
+            }
+            for note in notes {
+                let version = versions[note.id]
+                guard let version,
+                      let current = self.notes.first(where: { $0.id == note.id }),
+                      SearchIndexVersion(current) == version else { continue }
+                self.cacheIndexedSearchVersions[note.id] = version
+            }
         }
     }
 
     private func searchIndexVersions(for notes: [Note]) -> [UUID: SearchIndexVersion] {
         Dictionary(uniqueKeysWithValues: notes.map { ($0.id, SearchIndexVersion($0)) })
     }
+
+    /// Updates only search state whose authoritative note changed. Metadata-only
+    /// changes reuse normalized body/title storage; content changes rebuild one
+    /// document. The caller retains responsibility for a full scan when needed.
+    private func applyExternalSearchChanges(from previous: [Note], to current: [Note]) {
+        let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
+        let currentIDs = Set(current.map(\.id))
+        let removedIDs = Set(previousByID.keys).subtracting(currentIDs)
+        let changedNotes = current.filter { previousByID[$0.id] != $0 }
+
+        applyExternalSearchChanges(upserting: changedNotes, removing: removedIDs, previousByID: previousByID)
+    }
+
+    private func applyExternalSearchChanges(
+        upserting changedNotes: [Note], removing removedIDs: Set<UUID>,
+        previousByID: [UUID: Note]
+    ) {
+        for id in removedIDs {
+            searchDocuments.removeValue(forKey: id)
+            staleSearchDocumentIDs.remove(id)
+        }
+        for note in changedNotes {
+            if let old = previousByID[note.id], old.title == note.title, old.body == note.body,
+               let document = searchDocuments[note.id] {
+                searchDocuments[note.id] = document.replacingMetadata(with: note)
+            } else {
+                searchDocuments[note.id] = SearchDocument(note: note)
+            }
+            staleSearchDocumentIDs.remove(note.id)
+        }
+
+        if !isReadOnly {
+            scheduleCacheChanges(upserting: changedNotes, removing: removedIDs)
+        }
+    }
+
     private func scheduleJournal(for note: Note) {
         guard journal != nil else { return }
         journalTasks[note.id]?.cancel()
@@ -985,6 +1030,10 @@ final class AppModel {
 
     private func reconcileExternalChanges(_ change: DirectoryWatcher.Change) async {
         guard let libraryURL else { return }
+        if !change.requiresFullRescan {
+            await reconcileTargetedExternalChanges(paths: change.paths, libraryURL: libraryURL)
+            return
+        }
         reconcileGeneration += 1
         let generation = reconcileGeneration
         let scanner = scanner
@@ -1037,13 +1086,115 @@ final class AppModel {
                 }
             }
             notes = reconciled
-            searchDocuments = Dictionary(uniqueKeysWithValues: reconciled.map { ($0.id, SearchDocument(note: $0)) })
-            staleSearchDocumentIDs.removeAll()
+            applyExternalSearchChanges(from: cachedNotes, to: reconciled)
             recomputeDuplicateTitleKeys()
             scanIssues = scan.issues
-            if !isReadOnly, cache != nil {
-                scheduleCacheReplaceAll(reconciled)
+            refreshSearch()
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func reconcileTargetedExternalChanges(paths: Set<URL>, libraryURL: URL) async {
+        reconcileGeneration += 1
+        let generation = reconcileGeneration
+        let scanner = scanner
+        let extensions = recognizedExtensions
+        let cachedNotes = notes
+        let oldByFilename = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.filename, $0) })
+        let oldByID = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.id, $0) })
+        let oldByIdentity = Dictionary(uniqueKeysWithValues: cachedNotes.compactMap { note in
+            note.fileIdentity.map { ($0, note) }
+        })
+        let root = libraryURL.standardizedFileURL
+        let relevantPaths = Set(paths.map(\.standardizedFileURL).filter { url in
+            guard url.deletingLastPathComponent() == root, !url.lastPathComponent.hasPrefix(".") else { return false }
+            return oldByFilename[url.lastPathComponent] != nil
+                || extensions.contains(url.pathExtension.lowercased())
+        })
+        guard !relevantPaths.isEmpty else { return }
+        do {
+            let scan = try await Task.detached(priority: .utility) {
+                try scanner.scan(
+                    directory: libraryURL, paths: relevantPaths,
+                    recognizedExtensions: extensions, cached: oldByFilename
+                )
+            }.value
+            guard generation == reconcileGeneration else { return }
+
+            let affectedFilenames = Set(relevantPaths.map(\.lastPathComponent))
+            var upsertsByID: [UUID: Note] = [:]
+            var handledOldIDs: Set<UUID> = []
+            for var disk in scan.notes {
+                let old = oldByFilename[disk.filename]
+                    ?? disk.fileIdentity.flatMap { oldByIdentity[$0] }
+                guard let old else {
+                    upsertsByID[disk.id] = disk
+                    continue
+                }
+                handledOldIDs.insert(old.id)
+                if disk.filename != old.filename {
+                    disk = Note(
+                        id: old.id, title: disk.title, body: disk.body,
+                        createdAt: old.createdAt, modifiedAt: disk.modifiedAt,
+                        cursorStart: old.cursorStart, cursorLength: old.cursorLength,
+                        revision: old.revision + 1, filename: disk.filename,
+                        lastSavedHash: disk.lastSavedHash, lineEnding: disk.lineEnding,
+                        fileIdentity: disk.fileIdentity, fileSize: disk.fileSize,
+                        fileModificationSeconds: disk.fileModificationSeconds,
+                        fileModificationNanoseconds: disk.fileModificationNanoseconds,
+                        fileStatusChangeSeconds: disk.fileStatusChangeSeconds,
+                        fileStatusChangeNanoseconds: disk.fileStatusChangeNanoseconds
+                    )
+                } else if disk.lastSavedHash == old.lastSavedHash {
+                    // Preserve the newly observed fingerprint so a metadata-only
+                    // event does not force the next scan to reopen and hash again.
+                    upsertsByID[old.id] = disk
+                    continue
+                }
+                if dirtyNoteIDs.contains(old.id) && disk.lastSavedHash != old.lastSavedHash {
+                    conflict = Conflict(
+                        noteID: old.id, baseBody: baseBodies[old.id] ?? "", appBody: old.body,
+                        fileBody: disk.body, fileHash: disk.lastSavedHash
+                    )
+                    upsertsByID[old.id] = old
+                } else {
+                    upsertsByID[old.id] = disk
+                    baseBodies[old.id] = disk.body
+                    transientMessage = "“\(disk.title)” changed outside nvnv. Its undo history was cleared."
+                }
             }
+
+            var removedIDs: Set<UUID> = []
+            for old in cachedNotes where affectedFilenames.contains(old.filename)
+                && !handledOldIDs.contains(old.id) {
+                if dirtyNoteIDs.contains(old.id) {
+                    conflict = Conflict(
+                        noteID: old.id, baseBody: baseBodies[old.id] ?? "", appBody: old.body,
+                        fileBody: "", fileHash: ""
+                    )
+                    upsertsByID[old.id] = old
+                } else {
+                    removedIDs.insert(old.id)
+                }
+            }
+
+            let actualUpserts = upsertsByID.values.filter { oldByID[$0.id] != $0 }
+            var reconciled = cachedNotes.filter { !removedIDs.contains($0.id) }
+            var indices = Dictionary(uniqueKeysWithValues: reconciled.enumerated().map { ($0.element.id, $0.offset) })
+            for note in actualUpserts {
+                if let index = indices[note.id] {
+                    reconciled[index] = note
+                } else {
+                    indices[note.id] = reconciled.count
+                    reconciled.append(note)
+                }
+            }
+            notes = reconciled
+            applyExternalSearchChanges(
+                upserting: Array(actualUpserts), removing: removedIDs, previousByID: oldByID
+            )
+            recomputeDuplicateTitleKeys()
+            scanIssues.removeAll { affectedFilenames.contains($0.filename) }
+            scanIssues.append(contentsOf: scan.issues)
             refreshSearch()
         } catch { errorMessage = error.localizedDescription }
     }

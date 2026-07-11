@@ -93,18 +93,26 @@ public final class SQLiteCache: @unchecked Sendable {
         }
     }
 
+    /// Applies a library delta in one transaction. Removals happen first so a
+    /// replacement file can reuse a filename previously owned by another note.
+    public func applyChanges(upserting notes: [Note], removing ids: Set<UUID>) throws {
+        guard !notes.isEmpty || !ids.isEmpty else { return }
+        try withLock {
+            try executeUnlocked("BEGIN IMMEDIATE")
+            do {
+                for id in ids { try removeUnlocked(id: id) }
+                for note in notes { try upsertUnlocked(note) }
+                try executeUnlocked("COMMIT")
+            } catch {
+                try? executeUnlocked("ROLLBACK")
+                throw error
+            }
+        }
+    }
+
     public func remove(id: UUID) throws {
         try withLock {
-            let statement = try prepare("DELETE FROM notes WHERE id=?")
-            defer { sqlite3_finalize(statement) }
-            bind(id.uuidString, to: statement, at: 1)
-            try stepDone(statement)
-            if fts5TrigramAvailable {
-                let fts = try prepare("DELETE FROM note_search WHERE note_id=?")
-                defer { sqlite3_finalize(fts) }
-                bind(id.uuidString, to: fts, at: 1)
-                try stepDone(fts)
-            }
+            try removeUnlocked(id: id)
         }
     }
 
@@ -214,6 +222,19 @@ public final class SQLiteCache: @unchecked Sendable {
             bind(TextNormalizer.normalize(note.title), to: insert, at: 2)
             bind(TextNormalizer.normalize(note.body), to: insert, at: 3)
             try stepDone(insert)
+        }
+    }
+
+    private func removeUnlocked(id: UUID) throws {
+        let statement = try prepare("DELETE FROM notes WHERE id=?")
+        defer { sqlite3_finalize(statement) }
+        bind(id.uuidString, to: statement, at: 1)
+        try stepDone(statement)
+        if fts5TrigramAvailable {
+            let fts = try prepare("DELETE FROM note_search WHERE note_id=?")
+            defer { sqlite3_finalize(fts) }
+            bind(id.uuidString, to: fts, at: 1)
+            try stepDone(fts)
         }
     }
 

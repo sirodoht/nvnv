@@ -118,6 +118,98 @@ public struct LibraryScanner: Sendable {
         return ScanResult(notes: notes, issues: issues)
     }
 
+    /// Scans only the supplied immediate children of `directory`. Missing paths
+    /// represent deletions and are omitted from the result. Cached notes outside
+    /// the batch seed the identity set so newly-created hard links are rejected
+    /// consistently with a complete directory scan.
+    public func scan(
+        directory: URL, paths: Set<URL>, recognizedExtensions: Set<String>,
+        cached: [String: Note] = [:], now: Date = .now
+    ) throws -> ScanResult {
+        try validate(directory, requireWritable: false)
+        let root = directory.standardizedFileURL
+        let urls = paths.map(\.standardizedFileURL).filter {
+            $0.deletingLastPathComponent() == root
+        }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let targetedFilenames = Set(urls.map(\.lastPathComponent))
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .isHiddenKey, .creationDateKey, .contentModificationDateKey]
+        let unchangedIdentities = Set(cached.values.compactMap { note in
+            targetedFilenames.contains(note.filename) ? nil : note.fileIdentity
+        })
+        var batchIdentities: Set<String> = []
+        var cachedByIdentity: [String: Note] = [:]
+        for note in cached.values {
+            if let identity = note.fileIdentity, cachedByIdentity[identity] == nil {
+                cachedByIdentity[identity] = note
+            }
+        }
+        var notes: [Note] = []
+        var issues: [ScanIssue] = []
+        for url in urls {
+            let filename = url.lastPathComponent
+            guard !filename.hasPrefix("."), !url.pathExtension.isEmpty,
+                  recognizedExtensions.contains(url.pathExtension.lowercased()),
+                  FileManager.default.fileExists(atPath: url.path) else { continue }
+            let values = try url.resourceValues(forKeys: keys)
+            guard values.isRegularFile == true, values.isSymbolicLink != true,
+                  values.isHidden != true else { continue }
+            guard let metadata = fileMetadata(url) else {
+                issues.append(.init(filename: filename, message: "Could not determine a stable file identity."))
+                continue
+            }
+            guard batchIdentities.insert(metadata.identity).inserted else {
+                issues.append(.init(filename: filename, message: "Duplicate hard link ignored."))
+                continue
+            }
+            if unchangedIdentities.contains(metadata.identity),
+               let owner = cachedByIdentity[metadata.identity],
+               FileManager.default.fileExists(atPath: root.appendingPathComponent(owner.filename).path) {
+                issues.append(.init(filename: filename, message: "Duplicate hard link ignored."))
+                continue
+            }
+            let old = cached[filename] ?? cachedByIdentity[metadata.identity]
+            if let old, metadata.matches(old) {
+                notes.append(Note(
+                    id: old.id, title: url.deletingPathExtension().lastPathComponent,
+                    body: old.body, createdAt: old.createdAt, modifiedAt: metadata.modificationDate,
+                    cursorStart: old.cursorStart, cursorLength: old.cursorLength,
+                    revision: old.revision, filename: filename, lastSavedHash: old.lastSavedHash,
+                    lineEnding: old.lineEnding, fileIdentity: metadata.identity, fileSize: metadata.size,
+                    fileModificationSeconds: metadata.modificationSeconds,
+                    fileModificationNanoseconds: metadata.modificationNanoseconds,
+                    fileStatusChangeSeconds: metadata.statusChangeSeconds,
+                    fileStatusChangeNanoseconds: metadata.statusChangeNanoseconds
+                ))
+                continue
+            }
+            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+            let payload = data.starts(with: [0xEF, 0xBB, 0xBF]) ? data.dropFirst(3) : data[...]
+            guard var rawBody = String(data: payload, encoding: .utf8) else {
+                issues.append(.init(filename: filename, message: "Invalid UTF-8; file was left untouched."))
+                continue
+            }
+            if rawBody.contains("\0") {
+                rawBody = rawBody.replacingOccurrences(of: "\0", with: "\u{FFFD}")
+                issues.append(.init(filename: filename, message: "NUL characters are displayed as replacement characters."))
+            }
+            let lineEnding: LineEnding = rawBody.contains("\r\n") ? .crlf : .lf
+            let body = rawBody.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            notes.append(Note(
+                id: old?.id ?? UUID(), title: url.deletingPathExtension().lastPathComponent,
+                body: body, createdAt: values.creationDate ?? old?.createdAt ?? now,
+                modifiedAt: metadata.modificationDate, cursorStart: old?.cursorStart ?? 0,
+                cursorLength: old?.cursorLength ?? 0, revision: old?.revision ?? 0,
+                filename: filename, lastSavedHash: Hashing.sha256(data), lineEnding: lineEnding,
+                fileIdentity: metadata.identity, fileSize: metadata.size,
+                fileModificationSeconds: metadata.modificationSeconds,
+                fileModificationNanoseconds: metadata.modificationNanoseconds,
+                fileStatusChangeSeconds: metadata.statusChangeSeconds,
+                fileStatusChangeNanoseconds: metadata.statusChangeNanoseconds
+            ))
+        }
+        return ScanResult(notes: notes, issues: issues)
+    }
+
     private func fileMetadata(_ url: URL) -> ScannedFileMetadata? {
         var info = stat()
         guard lstat(url.path, &info) == 0 else { return nil }
