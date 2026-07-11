@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -11,31 +11,58 @@
     <meta property="og:site_name" content="nvnv" />
     <meta property="og:url" content="https://nvnv.yoga/" />
     <meta property="og:title" content="nvnv — notes at the speed of thought" />
-    <meta property="og:description" content="A fast, keyboard-first plain-text notes app and modern re-imagining of nvALT." />
-    <meta property="og:image" content="https://nvnv.yoga/images/nvnv-logo.png" />
+    <meta
+      property="og:description"
+      content="A fast, keyboard-first plain-text notes app and modern re-imagining of nvALT."
+    />
+    <meta
+      property="og:image"
+      content="https://nvnv.yoga/images/nvnv-logo.png"
+    />
     <meta property="og:image:width" content="512" />
     <meta property="og:image:height" content="512" />
-    <meta property="og:image:alt" content="The colorful nvnv fountain-pen rocket logo" />
+    <meta
+      property="og:image:alt"
+      content="The colorful nvnv fountain-pen rocket logo"
+    />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="nvnv — notes at the speed of thought" />
-    <meta name="twitter:description" content="A fast, keyboard-first plain-text notes app and modern re-imagining of nvALT." />
-    <meta name="twitter:image" content="https://nvnv.yoga/images/nvnv-logo.png" />
-    <meta name="twitter:image:alt" content="The colorful nvnv fountain-pen rocket logo" />
+    <meta
+      name="twitter:description"
+      content="A fast, keyboard-first plain-text notes app and modern re-imagining of nvALT."
+    />
+    <meta
+      name="twitter:image"
+      content="https://nvnv.yoga/images/nvnv-logo.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="The colorful nvnv fountain-pen rocket logo"
+    />
     <meta name="theme-color" content="#fbf5e9" />
     <title>nvnv — notes at the speed of thought</title>
     <link rel="canonical" href="https://nvnv.yoga/" />
     <link rel="icon" type="image/png" href="./images/nvnv-logo.png" />
     <link rel="apple-touch-icon" href="./images/nvnv-logo.png" />
+    <link rel="preconnect" href="https://fonts.bunny.net" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.bunny.net/css?family=dm-mono:300,400,500|manrope:400,500,600,700,800"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="grain" aria-hidden="true"></div>
-    <aside class="heritage-rail" data-tone="mustard" aria-label="驚的速記">
+    <aside class="heritage-rail" data-tone="mustard" aria-hidden="true">
       <div class="rail-inner" aria-hidden="true">
         <div class="rail-utility">
-          <span>NOTATIONAL<br />VELOCITY<br />NOTATIONAL<br />VELOCITY<br /></span>
+          <span
+          >NOTATIONAL<br />VELOCITY<br />NOTATIONAL<br />VELOCITY<br /></span>
         </div>
-        <div class="rail-characters" lang="zh-Hant"><span class="rail-pair-one">驚的</span><span class="rail-pair-two">速記</span></div>
+        <div class="rail-characters" lang="zh-Hant">
+          <span class="rail-pair-one">驚的</span><span class="rail-pair-two"
+          >速記</span>
+        </div>
         <div class="rail-context">
           <span class="rail-number">00</span>
         </div>
@@ -45,42 +72,91 @@
 
     <header class="site-header">
       <div class="brand-lockup">
-        <a class="brand" href="#top" target="_blank" rel="noopener noreferrer" aria-label="nvnv home">
-          <img class="brand-logo" src="./images/nvnv-logo.png" alt="" width="52" height="52" />
-          <span class="brand-mark"><span>n</span><span>v</span><span>n</span><span>v</span></span>
+        <a class="brand" href="#top" aria-label="nvnv home">
+          <img
+            class="brand-logo"
+            src="./images/nvnv-logo.png"
+            alt=""
+            width="52"
+            height="52"
+          />
+          <span class="brand-mark"><span>n</span><span>v</span><span
+            >n</span><span>v</span></span>
         </a>
         <span class="brand-japanese" lang="ja">ノテイショナルヴェロシティ</span>
       </div>
       <nav class="nav-links" aria-label="Main navigation">
-        <a href="#screens" target="_blank" rel="noopener noreferrer">Screenshots</a>
-        <a href="#shortcuts" target="_blank" rel="noopener noreferrer">Shortcuts</a>
-        <a href="https://github.com/sirodoht/nvnv" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        <a href="#screens">Screenshots</a>
+        <a href="#shortcuts">Shortcuts</a>
+        <a
+          href="https://github.com/sirodoht/nvnv"
+          target="_blank"
+          rel="noopener noreferrer"
+        >GitHub ↗</a>
       </nav>
-      <a class="tiny-github" href="https://github.com/sirodoht/nvnv" target="_blank" rel="noopener noreferrer" aria-label="View nvnv on GitHub">GH ↗</a>
+      <a
+        class="tiny-github"
+        href="https://github.com/sirodoht/nvnv"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="View nvnv on GitHub"
+      >GH ↗</a>
     </header>
 
     <main id="top">
-      <section class="hero section-shell" data-rail-tone="mustard" data-rail-number="00" data-rail-label="起點 / START">
-        <div class="hero-copy reveal">
-          <div class="eyebrow"><span class="eyebrow-dot"></span> introducing an implementation of notational velocity</div>
-          <h1 class="hero-title-product">nvnv<br /><em>stores and</em><br />retrieves<br />notes<span class="period">.</span></h1>
+      <section
+        class="hero section-shell"
+        data-rail-tone="mustard"
+        data-rail-number="00"
+      >
+        <div class="hero-copy">
+          <div class="eyebrow">
+            <span class="eyebrow-dot"></span> introducing an implementation of
+            notational velocity
+          </div>
+          <h1 class="hero-title-product">
+            nvnv<br /><em>stores and</em><br />retrieves<br />notes<span
+              class="period"
+            >.</span>
+          </h1>
           <div class="hero-intro">
-            <p>It is an attempt to loosen the mental blockages to recording information and to scrape away the tartar of convention that handicaps its retrieval. The solution is by nature nonconformist.</p>
+            <p>
+              It is an attempt to loosen the mental blockages to recording
+              information and to scrape away the tartar of convention that
+              handicaps its retrieval. The solution is by nature nonconformist.
+            </p>
           </div>
           <div class="hero-actions">
-            <a class="button button-dark" href="https://github.com/sirodoht/nvnv" target="_blank" rel="noopener noreferrer">
-              <span>github.com/sirodoht/nvnv</span><span aria-hidden="true">↗</span>
+            <a
+              class="button button-dark"
+              href="https://github.com/sirodoht/nvnv"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>github.com/sirodoht/nvnv</span><span aria-hidden="true"
+              >↗</span>
             </a>
           </div>
         </div>
 
-        <div class="hero-stage reveal reveal-delay" id="demo">
+        <div class="hero-stage" id="demo">
           <div class="spark spark-one" aria-hidden="true">✦</div>
           <div class="spark spark-two" aria-hidden="true">✷</div>
 
-          <div class="nv-flow" aria-label="Search or title, filtered note list, and selected note content">
-            <svg class="flow-connector" viewBox="0 0 200 420" aria-hidden="true">
-              <path class="flow-arrow-shape" d="M78 14Q78 5 87 5h26q9 0 9 9v266h46q11 0 4 10l-62 86q-10 14-20 0l-62-86q-7-10 4-10h46Z" />
+          <div
+            class="nv-flow"
+            role="img"
+            aria-label="Search or title flows into a filtered note list, then into the selected note's content."
+          >
+            <svg
+              class="flow-connector"
+              viewBox="0 0 200 420"
+              aria-hidden="true"
+            >
+              <path
+                class="flow-arrow-shape"
+                d="M78 14Q78 5 87 5h26q9 0 9 9v266h46q11 0 4 10l-62 86q-10 14-20 0l-62-86q-7-10 4-10h46Z"
+              />
             </svg>
 
             <div class="flow-panel flow-panel-search">
@@ -99,14 +175,20 @@
         </div>
       </section>
 
-      <section class="manifesto section-shell" id="how" data-rail-tone="vermilion" data-rail-number="01" data-rail-label="意念 / THE IDEA">
+      <section
+        class="manifesto section-shell"
+        id="how"
+        data-rail-tone="vermilion"
+        data-rail-number="01"
+      >
         <div class="section-number">01</div>
         <div class="manifesto-grid">
           <h2>Your notes should<br />feel like <span>reflex.</span></h2>
           <div class="manifesto-copy">
             <p>
-              nvnv keeps search, creation, and writing in one continuous motion. No folders to tend.
-              No save button to remember. No tiny database holding your thoughts hostage.
+              nvnv keeps search, creation, and writing in one continuous motion.
+              No folders to tend. No save button to remember. No tiny database
+              holding your thoughts hostage.
             </p>
             <p class="scribble"><span>⌘L</span> → type → found</p>
           </div>
@@ -115,23 +197,41 @@
         <div class="flow-grid">
           <article class="flow-card flow-search">
             <span class="flow-index">A</span>
-            <div class="flow-icon" aria-hidden="true"><span class="search-glyph"></span></div>
+            <div class="flow-icon" aria-hidden="true">
+              <span class="search-glyph"></span>
+            </div>
             <h3>Type anything</h3>
-            <p>One field searches every title and body as quickly as you can think.</p>
-            <div class="mini-search"><i class="search-glyph" aria-hidden="true"></i><span>mushroom risotto</span><b></b></div>
+            <p>
+              One field searches every title and body as quickly as you can
+              think.
+            </p>
+            <div class="mini-search">
+              <i class="search-glyph" aria-hidden="true"></i><span>mushroom
+                risotto</span><b></b>
+            </div>
           </article>
           <article class="flow-card flow-find">
             <span class="flow-index">B</span>
             <div class="flow-icon">↳</div>
             <h3>Find or make</h3>
-            <p>Jump to a match. No match? Press Return and the query becomes a new note.</p>
-            <div class="mini-result"><span>↵</span><div><b>Create note</b><small>“mushroom risotto”</small></div></div>
+            <p>
+              Jump to a match. No match? Press Return and the query becomes a
+              new note.
+            </p>
+            <div class="mini-result">
+              <span>↵</span><div>
+                <b>Create note</b><small>“mushroom risotto”</small>
+              </div>
+            </div>
           </article>
           <article class="flow-card flow-write">
             <span class="flow-index">C</span>
             <div class="flow-icon">✎</div>
             <h3>Keep moving</h3>
-            <p>Write in plain text. nvnv saves automatically, quietly, and safely.</p>
+            <p>
+              Write in plain text. nvnv saves automatically, quietly, and
+              safely.
+            </p>
             <div class="mini-copy">butter, thyme, shallots<span></span></div>
           </article>
         </div>
@@ -140,10 +240,14 @@
       <section class="ticker" aria-label="nvnv qualities">
         <div class="ticker-track">
           <div class="ticker-group">
-            <span>keyboard first</span><b>✽</b><span>plain text</span><b>✽</b><span>local forever</span><b>✽</b><span>open source</span><b>✽</b>
+            <span>keyboard first</span><b>✽</b><span>plain text</span><b
+            >✽</b><span>local forever</span><b>✽</b><span>open source</span><b
+            >✽</b>
           </div>
           <div class="ticker-group" aria-hidden="true">
-            <span>keyboard first</span><b>✽</b><span>plain text</span><b>✽</b><span>local forever</span><b>✽</b><span>open source</span><b>✽</b>
+            <span>keyboard first</span><b>✽</b><span>plain text</span><b
+            >✽</b><span>local forever</span><b>✽</b><span>open source</span><b
+            >✽</b>
           </div>
         </div>
       </section>
@@ -152,57 +256,170 @@
         <div class="section-shell">
           <div class="screens-heading">
             <h2>The actual<br /><em>application.</em></h2>
-            <p>One window. Search at the top, notes just below it, and the selected thought underneath.</p>
+            <p>
+              One window. Search at the top, notes just below it, and the
+              selected thought underneath.
+            </p>
           </div>
 
           <div class="screens-grid">
             <figure class="screenshot-card">
-              <a href="./images/nvnv-1.png" target="_blank" rel="noopener noreferrer"><img src="./images/nvnv-1.png" alt="nvnv asking the user to open a notes folder" width="1012" height="1754" loading="lazy" decoding="async" /></a>
+              <a
+                href="./images/nvnv-1.png"
+                target="_blank"
+                rel="noopener noreferrer"
+              ><img
+                  src="./images/nvnv-1.png"
+                  alt="nvnv asking the user to open a notes folder"
+                  width="1012"
+                  height="1754"
+                  loading="lazy"
+                  decoding="async"
+                /></a>
               <figcaption><span>01</span> Start with a folder</figcaption>
             </figure>
             <figure class="screenshot-card">
-              <a href="./images/nvnv-2.png" target="_blank" rel="noopener noreferrer"><img src="./images/nvnv-2.png" alt="nvnv showing the notes list and welcome note" width="1012" height="1754" loading="lazy" decoding="async" /></a>
+              <a
+                href="./images/nvnv-2.png"
+                target="_blank"
+                rel="noopener noreferrer"
+              ><img
+                  src="./images/nvnv-2.png"
+                  alt="nvnv showing the notes list and welcome note"
+                  width="1012"
+                  height="1754"
+                  loading="lazy"
+                  decoding="async"
+                /></a>
               <figcaption><span>02</span> Search, write, repeat</figcaption>
             </figure>
             <figure class="screenshot-card">
-              <a href="./images/nvnv-3.png" target="_blank" rel="noopener noreferrer"><img src="./images/nvnv-3.png" alt="nvnv with a note open for editing" width="1012" height="1754" loading="lazy" decoding="async" /></a>
+              <a
+                href="./images/nvnv-3.png"
+                target="_blank"
+                rel="noopener noreferrer"
+              ><img
+                  src="./images/nvnv-3.png"
+                  alt="nvnv with a note open for editing"
+                  width="1012"
+                  height="1754"
+                  loading="lazy"
+                  decoding="async"
+                /></a>
               <figcaption><span>03</span> Edit in place</figcaption>
             </figure>
             <figure class="screenshot-card">
-              <a href="./images/nvnv-4.png" target="_blank" rel="noopener noreferrer"><img src="./images/nvnv-4.png" alt="nvnv filtering notes as a search is typed" width="1012" height="1754" loading="lazy" decoding="async" /></a>
+              <a
+                href="./images/nvnv-4.png"
+                target="_blank"
+                rel="noopener noreferrer"
+              ><img
+                  src="./images/nvnv-4.png"
+                  alt="nvnv filtering notes as a search is typed"
+                  width="1012"
+                  height="1754"
+                  loading="lazy"
+                  decoding="async"
+                /></a>
               <figcaption><span>04</span> Find instantly</figcaption>
             </figure>
             <figure class="screenshot-card">
-              <a href="./images/nvnv-5.png" target="_blank" rel="noopener noreferrer"><img src="./images/nvnv-5.png" alt="nvnv showing a selected plant care note" width="1012" height="1754" loading="lazy" decoding="async" /></a>
+              <a
+                href="./images/nvnv-5.png"
+                target="_blank"
+                rel="noopener noreferrer"
+              ><img
+                  src="./images/nvnv-5.png"
+                  alt="nvnv showing a selected plant care note"
+                  width="1012"
+                  height="1754"
+                  loading="lazy"
+                  decoding="async"
+                /></a>
               <figcaption><span>05</span> Everything in one window</figcaption>
             </figure>
             <figure class="screenshot-card screenshot-card-wide">
-              <a href="./images/nvnv-6.png" target="_blank" rel="noopener noreferrer"><img src="./images/nvnv-6.png" alt="nvnv settings for the notes library, note list, and editor" width="1120" height="1364" loading="lazy" decoding="async" /></a>
+              <a
+                href="./images/nvnv-6.png"
+                target="_blank"
+                rel="noopener noreferrer"
+              ><img
+                  src="./images/nvnv-6.png"
+                  alt="nvnv settings for the notes library, note list, and editor"
+                  width="1120"
+                  height="1364"
+                  loading="lazy"
+                  decoding="async"
+                /></a>
               <figcaption><span>06</span> Make the list yours</figcaption>
             </figure>
             <figure class="screenshot-card screenshot-card-wide">
-              <a href="./images/nvnv-7.png" target="_blank" rel="noopener noreferrer"><img src="./images/nvnv-7.png" alt="nvnv settings for typography, safety, and file formats" width="1120" height="1364" loading="lazy" decoding="async" /></a>
-              <figcaption><span>07</span> Plain-text choices included</figcaption>
+              <a
+                href="./images/nvnv-7.png"
+                target="_blank"
+                rel="noopener noreferrer"
+              ><img
+                  src="./images/nvnv-7.png"
+                  alt="nvnv settings for typography, safety, and file formats"
+                  width="1120"
+                  height="1364"
+                  loading="lazy"
+                  decoding="async"
+                /></a>
+              <figcaption>
+                <span>07</span> Plain-text choices included
+              </figcaption>
             </figure>
           </div>
         </div>
       </section>
 
-      <div class="screenshot-lightbox" id="screenshot-lightbox" role="dialog" aria-modal="true" aria-label="Screenshot gallery" hidden>
-        <button class="lightbox-close" type="button" aria-label="Close screenshot gallery">×</button>
+      <dialog
+        class="screenshot-lightbox"
+        id="screenshot-lightbox"
+        aria-label="Screenshot gallery"
+      >
+        <button
+          class="lightbox-close"
+          type="button"
+          aria-label="Close screenshot gallery"
+        >
+          ×
+        </button>
         <div class="lightbox-shell">
-          <button class="lightbox-arrow lightbox-prev" type="button" aria-label="Previous screenshot">←</button>
+          <button
+            class="lightbox-arrow lightbox-prev"
+            type="button"
+            aria-label="Previous screenshot"
+          >
+            ←
+          </button>
           <figure class="lightbox-figure">
             <div class="lightbox-image-stage">
               <img class="lightbox-image" src="" alt="" />
             </div>
-            <figcaption><span class="lightbox-caption"></span><span class="lightbox-count"></span></figcaption>
+            <figcaption aria-live="polite">
+              <span class="lightbox-caption"></span><span
+                class="lightbox-count"
+              ></span>
+            </figcaption>
           </figure>
-          <button class="lightbox-arrow lightbox-next" type="button" aria-label="Next screenshot">→</button>
+          <button
+            class="lightbox-arrow lightbox-next"
+            type="button"
+            aria-label="Next screenshot"
+          >
+            →
+          </button>
         </div>
-      </div>
+      </dialog>
 
-      <section class="feature-zone" id="features" data-rail-tone="violet" data-rail-number="02" data-rail-label="機能 / FEATURES">
+      <section
+        class="feature-zone"
+        id="features"
+        data-rail-tone="violet"
+        data-rail-number="02"
+      >
         <div class="section-shell">
           <div class="section-number light">02</div>
           <div class="feature-heading">
@@ -215,9 +432,13 @@
               <span class="pill">MOUSELESS INTERACTION</span>
               <h3>Keyboard input<br />above all else.</h3>
               <div class="key-cloud" aria-hidden="true">
-                <kbd>⌘</kbd><kbd>K</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>↵</kbd><kbd>esc</kbd>
+                <kbd>⌘</kbd><kbd>K</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>↵</kbd><kbd
+                >esc</kbd>
               </div>
-              <p>nvnv's window was designed for keyboard input above all else, and thus has no buttons.</p>
+              <p>
+                nvnv's window was designed for keyboard input above all else,
+                and thus has no buttons.
+              </p>
             </article>
 
             <article class="bento bento-files">
@@ -225,10 +446,15 @@
               <div class="file-stack" aria-hidden="true">
                 <div class="file file-back">.md</div>
                 <div class="file file-mid">.txt</div>
-                <div class="file file-front"><span>weekend ideas</span><b>✦</b></div>
+                <div class="file file-front">
+                  <span>weekend ideas</span><b>✦</b>
+                </div>
               </div>
               <h3>No save<br />button.</h3>
-              <p>There is no manual “saving” in nvnv; all modifications take effect immediately.</p>
+              <p>
+                There is no manual “saving” in nvnv; all modifications take
+                effect immediately.
+              </p>
             </article>
 
             <article class="bento bento-search">
@@ -244,9 +470,17 @@
             <article class="bento bento-safe">
               <span class="pill">MODELESS OPERATION</span>
               <h3>Search is the<br />interface.</h3>
-              <p>Searching for notes is not a separate action; rather, it is the primary interface.</p>
+              <p>
+                Searching for notes is not a separate action; rather, it is the
+                primary interface.
+              </p>
               <div class="safe-orbit" aria-hidden="true">
-                <span class="safe-core"><span class="search-glyph" aria-hidden="true"></span></span><i class="satellite sat-one">find</i><i class="satellite sat-two">select</i><i class="satellite sat-three">write</i>
+                <span class="safe-core"><span
+                    class="search-glyph"
+                    aria-hidden="true"
+                  ></span></span><i class="satellite sat-one">find</i><i
+                  class="satellite sat-two"
+                >select</i><i class="satellite sat-three">write</i>
               </div>
             </article>
 
@@ -262,106 +496,253 @@
             </article>
           </div>
 
-          <section class="shortcut-reference" id="shortcuts" aria-labelledby="shortcut-heading">
+          <section
+            class="shortcut-reference"
+            id="shortcuts"
+            aria-labelledby="shortcut-heading"
+          >
             <div class="shortcut-heading">
               <div>
                 <span class="pill">KEYBOARD REFERENCE</span>
-                <h3 id="shortcut-heading">Every shortcut.<br /><em>Close at hand.</em></h3>
+                <h3 id="shortcut-heading">
+                  Every shortcut.<br /><em>Close at hand.</em>
+                </h3>
               </div>
-              <p>Search, navigate, rename, move, and edit without leaving the keyboard.</p>
+              <p>
+                Search, navigate, rename, move, and edit without leaving the
+                keyboard.
+              </p>
             </div>
 
             <dl class="shortcut-grid">
-              <div><dt><kbd>⌘L</kbd></dt><dd>Focus the search/create field.</dd></div>
-              <div><dt><kbd>Type</kbd></dt><dd>Filter notes by title and contents.</dd></div>
-              <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move through results while the search field is focused.</dd></div>
-              <div><dt><kbd>⌘J</kbd> <kbd>⌘K</kbd></dt><dd>Select the next or previous note from anywhere.</dd></div>
-              <div><dt><kbd>Return</kbd></dt><dd>Open the selected or best title match; if none matches, create a note.</dd></div>
-              <div><dt><kbd>Escape</kbd></dt><dd>Clear the search or cancel a rename.</dd></div>
-              <div><dt><kbd>⌘D</kbd></dt><dd>Deselect the note and restore the previous search.</dd></div>
-              <div><dt><kbd>⌘R</kbd></dt><dd>Rename the selected note. Press Return to commit or Escape to cancel.</dd></div>
-              <div><dt><kbd>⌥⌘←</kbd></dt><dd>Return to the previous note/search context.</dd></div>
-              <div><dt><kbd>⌘Delete</kbd></dt><dd>Move the selected notes to Trash.</dd></div>
-              <div><dt><kbd>⇧⌘R</kbd></dt><dd>Show the selected note in Finder.</dd></div>
-              <div><dt><kbd>⌘[</kbd> <kbd>⌘]</kbd></dt><dd>Outdent or indent.</dd></div>
-              <div><dt><kbd>Tab</kbd> <kbd>⇧Tab</kbd></dt><dd>Indent or outdent in the editor when “Tab indents text” is enabled.</dd></div>
-              <div><dt><kbd>⌘O</kbd></dt><dd>Choose another notes folder.</dd></div>
-              <div class="shortcut-wide"><dt><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd> <kbd>⌘F</kbd> <kbd>⌘X</kbd> <kbd>⌘C</kbd> <kbd>⌘V</kbd> <kbd>⌘A</kbd></dt><dd>Standard macOS editing shortcuts work in the editor.</dd></div>
+              <div>
+                <dt><kbd>⌘L</kbd></dt>
+                <dd>Focus the search/create field.</dd>
+              </div>
+              <div>
+                <dt><kbd>Type</kbd></dt>
+                <dd>Filter notes by title and contents.</dd>
+              </div>
+              <div>
+                <dt><kbd>↑</kbd> <kbd>↓</kbd></dt>
+                <dd>Move through results while the search field is focused.</dd>
+              </div>
+              <div>
+                <dt><kbd>⌘J</kbd> <kbd>⌘K</kbd></dt>
+                <dd>Select the next or previous note from anywhere.</dd>
+              </div>
+              <div>
+                <dt><kbd>Return</kbd></dt>
+                <dd>
+                  Open the selected or best title match; if none matches, create
+                  a note.
+                </dd>
+              </div>
+              <div>
+                <dt><kbd>Escape</kbd></dt>
+                <dd>Clear the search or cancel a rename.</dd>
+              </div>
+              <div>
+                <dt><kbd>⌘D</kbd></dt>
+                <dd>Deselect the note and restore the previous search.</dd>
+              </div>
+              <div>
+                <dt><kbd>⌘R</kbd></dt>
+                <dd>
+                  Rename the selected note. Press Return to commit or Escape to
+                  cancel.
+                </dd>
+              </div>
+              <div>
+                <dt><kbd>⌥⌘←</kbd></dt>
+                <dd>Return to the previous note/search context.</dd>
+              </div>
+              <div>
+                <dt><kbd>⌘Delete</kbd></dt>
+                <dd>Move the selected notes to Trash.</dd>
+              </div>
+              <div>
+                <dt><kbd>⇧⌘R</kbd></dt>
+                <dd>Show the selected note in Finder.</dd>
+              </div>
+              <div>
+                <dt><kbd>⌘[</kbd> <kbd>⌘]</kbd></dt>
+                <dd>Outdent or indent.</dd>
+              </div>
+              <div>
+                <dt><kbd>Tab</kbd> <kbd>⇧Tab</kbd></dt>
+                <dd>
+                  Indent or outdent in the editor when “Tab indents text” is
+                  enabled.
+                </dd>
+              </div>
+              <div>
+                <dt><kbd>⌘O</kbd></dt>
+                <dd>Choose another notes folder.</dd>
+              </div>
+              <div class="shortcut-wide">
+                <dt>
+                  <kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd> <kbd>⌘F</kbd> <kbd>⌘X</kbd> <kbd
+                  >⌘C</kbd> <kbd>⌘V</kbd> <kbd>⌘A</kbd>
+                </dt>
+                <dd>Standard macOS editing shortcuts work in the editor.</dd>
+              </div>
             </dl>
           </section>
         </div>
       </section>
 
-      <section class="promise section-shell" data-rail-tone="acid" data-rail-number="03" data-rail-label="承諾 / PROMISE">
-        <div class="promise-sticker" aria-hidden="true"><span>BYOC — bring</span><span>your own cloud</span></div>
+      <section
+        class="promise section-shell"
+        data-rail-tone="acid"
+        data-rail-number="03"
+      >
+        <div class="promise-sticker" aria-hidden="true">
+          <span>BYOC — bring</span><span>your own cloud</span>
+        </div>
         <p class="section-number">03</p>
-        <h2>Your thoughts.<br /><span>Your machine.</span><br />Your business.</h2>
+        <h2>
+          Your thoughts.<br /><span>Your machine.</span><br />Your business.
+        </h2>
         <div class="promise-foot">
           <div class="promise-copy">
             <p>
-              nvnv watches your files, plays nicely with external edits, and keeps its index disposable.
-              Your notes outlive the app. Zero vendor lock-in.
+              nvnv watches your files, plays nicely with external edits, and
+              keeps its index disposable. Your notes outlive the app. Zero
+              vendor lock-in.
             </p>
-            <p class="spec-prompt">Speak to your agent about it. Reimplement with your changes.</p>
-            <a class="spec-link" href="https://github.com/sirodoht/nvnv/blob/main/spec/SPEC.md" target="_blank" rel="noopener noreferrer">
+            <p class="spec-prompt">
+              Speak to your agent about it. Reimplement with your changes.
+            </p>
+            <a
+              class="spec-link"
+              href="https://github.com/sirodoht/nvnv/blob/main/spec/SPEC.md"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <strong>nvnv SPEC</strong>
               <span class="spec-link-arrow" aria-hidden="true">↗</span>
             </a>
           </div>
-          <div class="plain-badge"><b>.txt</b><span>portable<br />by design</span></div>
+          <div class="plain-badge">
+            <b>.txt</b><span>portable<br />by design</span>
+          </div>
         </div>
       </section>
 
-      <section class="open-source-section" id="open-source" data-rail-tone="pink" data-rail-number="04" data-rail-label="開源 / OPEN SOURCE">
+      <section
+        class="open-source-section"
+        id="open-source"
+        data-rail-tone="pink"
+        data-rail-number="04"
+      >
         <div class="section-shell">
           <div class="open-source-grid">
             <div class="open-source-copy">
               <p class="section-number">04</p>
               <h2>Open by<br /><em>nature.</em></h2>
-              <p>MIT License. Permission is hereby granted. This software is provided as is. Use your agent.</p>
-              <a class="open-source-link" href="https://github.com/sirodoht/nvnv" target="_blank" rel="noopener noreferrer">
-                <span>github.com/sirodoht/nvnv</span><span aria-hidden="true">↗</span>
+              <p>
+                MIT License. Permission is hereby granted. This software is
+                provided as is. Use your agent.
+              </p>
+              <a
+                class="open-source-link"
+                href="https://github.com/sirodoht/nvnv"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span>github.com/sirodoht/nvnv</span><span aria-hidden="true"
+                >↗</span>
               </a>
             </div>
             <div class="open-emblems">
               <div class="open-source-emblem" aria-hidden="true">
-                <img class="open-emblem-mark" src="./images/open-source-mark.svg" alt="" width="320" height="320" />
-                <div class="emblem-wordmark"><strong>open</strong><span>source</span></div>
+                <img
+                  class="open-emblem-mark"
+                  src="./images/open-source-mark.svg"
+                  alt=""
+                  width="320"
+                  height="320"
+                />
+                <div class="emblem-wordmark">
+                  <strong>open</strong><span>source</span>
+                </div>
               </div>
-              <div class="open-source-emblem open-agency-emblem" aria-hidden="true">
-                <img class="open-emblem-mark" src="./images/open-agency-mark.svg" alt="" width="320" height="320" />
-                <div class="emblem-wordmark"><strong>open</strong><span>agency</span></div>
+              <div
+                class="open-source-emblem open-agency-emblem"
+                aria-hidden="true"
+              >
+                <img
+                  class="open-emblem-mark"
+                  src="./images/open-agency-mark.svg"
+                  alt=""
+                  width="320"
+                  height="320"
+                />
+                <div class="emblem-wordmark">
+                  <strong>open</strong><span>agency</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="homage-section" data-rail-tone="mustard" data-rail-number="05" data-rail-label="敬意 / HOMAGE">
+      <section
+        class="homage-section"
+        data-rail-tone="mustard"
+        data-rail-number="05"
+      >
         <div class="section-shell">
           <p class="section-number">05</p>
           <div class="homage-heading">
             <h2>It's an<br /><em>homage.</em></h2>
-            <p>nvnv exists because Notational Velocity nailed the UX. Thanks <a href="https://github.com/scrod" target="_blank" rel="noopener noreferrer">Zachary</a>!</p>
+            <p>
+              nvnv exists because Notational Velocity nailed the UX. Thanks <a
+                href="https://github.com/scrod"
+                target="_blank"
+                rel="noopener noreferrer"
+              >Zachary</a>!
+            </p>
           </div>
 
           <div class="homage-links">
-            <a class="homage-link" href="https://notational.net/" target="_blank" rel="noopener noreferrer">
+            <a
+              class="homage-link"
+              href="https://notational.net/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <span>01 · THE ORIGINAL</span><b aria-hidden="true">↗</b>
               <strong>Notational<br />Velocity</strong>
               <small>notational.net</small>
             </a>
-            <a class="homage-link" href="https://github.com/scrod/nv" target="_blank" rel="noopener noreferrer">
+            <a
+              class="homage-link"
+              href="https://github.com/scrod/nv"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <span>02 · SOURCE</span><b aria-hidden="true">↗</b>
               <strong>scrod<br />/ nv</strong>
               <small>github.com/scrod/nv</small>
             </a>
-            <a class="homage-link" href="https://brettterpstra.com/projects/nvalt/" target="_blank" rel="noopener noreferrer">
+            <a
+              class="homage-link"
+              href="https://brettterpstra.com/projects/nvalt/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <span>03 · THE FORK</span><b aria-hidden="true">↗</b>
               <strong>nvALT</strong>
               <small>brettterpstra.com/projects/nvalt</small>
             </a>
-            <a class="homage-link" href="https://github.com/ttscoff/nv" target="_blank" rel="noopener noreferrer">
+            <a
+              class="homage-link"
+              href="https://github.com/ttscoff/nv"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <span>04 · SOURCE</span><b aria-hidden="true">↗</b>
               <strong>ttscoff<br />/ nv</strong>
               <small>github.com/ttscoff/nv</small>
@@ -369,14 +750,21 @@
           </div>
         </div>
       </section>
-
     </main>
 
     <footer class="site-footer">
       <div class="footer-plaque">
         <div class="footer-plaque-inner section-shell">
-          <img class="footer-logo" src="./images/nvnv-logo.png" alt="" width="96" height="96" />
-          <div class="footer-wordmark" aria-hidden="true">nv<span>n</span>v</div>
+          <img
+            class="footer-logo"
+            src="./images/nvnv-logo.png"
+            alt=""
+            width="96"
+            height="96"
+          />
+          <div class="footer-wordmark" aria-hidden="true">
+            nv<span>n</span>v
+          </div>
           <p>Notes at the speed of thought.</p>
         </div>
       </div>
