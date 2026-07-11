@@ -14,8 +14,14 @@ jobs:
       - name: Toolchain
         run: swift --version
       - name: Build
-        run: swift build
+        run: >-
+          xcodebuild
+          -project nvnv.xcodeproj
+          -scheme nvnv
+          -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+          build
       - name: Test
-        run: swift test
+        run: swift test --package-path Packages/NVNVCore
       - name: Platform probes
-        run: swift run nvnv-probes
+        run: swift run --package-path Packages/NVNVCore nvnv-probes
