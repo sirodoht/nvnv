@@ -65,7 +65,7 @@ struct NoteListView: View {
                     .listStyle(.plain)
                     .environment(\.defaultMinListRowHeight, 16)
                     .overlay {
-                        if model.results.isEmpty {
+                        if model.results.isEmpty && !model.isRestoringLibrary {
                             ContentUnavailableView(
                                 model.query.isEmpty ? "No Notes" : "No Matches",
                                 systemImage: model.query.isEmpty ? "note.text" : "magnifyingglass",
@@ -220,7 +220,12 @@ struct NoteListView: View {
         guard let request = model.listScrollRequest,
               model.results.contains(where: { $0.id == request.noteID }) else { return }
         DispatchQueue.main.async {
-            proxy.scrollTo(request.noteID, anchor: .top)
+            switch request.placement {
+            case .minimal:
+                proxy.scrollTo(request.noteID)
+            case .top:
+                proxy.scrollTo(request.noteID, anchor: .top)
+            }
             model.consumeListScrollRequest(request.id)
         }
     }

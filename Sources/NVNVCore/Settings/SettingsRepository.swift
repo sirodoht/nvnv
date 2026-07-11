@@ -10,7 +10,9 @@ public actor SettingsRepository {
     public func load() -> LibrarySettings {
         guard let data = try? Data(contentsOf: url),
               let settings = try? decoder.decode(LibrarySettings.self, from: data),
-              settings.schemaVersion == 1 else { return LibrarySettings() }
+              (1...LibrarySettings().schemaVersion).contains(settings.schemaVersion) else {
+            return LibrarySettings()
+        }
         return settings
     }
 

@@ -5,8 +5,14 @@ struct NVNVCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("Open Notes Folder…") { Task { await model.chooseLibrary() } }
+            Button(model.libraryURL == nil ? "Open Notes Folder…" : "Choose Another Notes Folder…") {
+                Task { await model.chooseLibrary() }
+            }
                 .keyboardShortcut("o")
+            if model.libraryURL != nil {
+                Divider()
+                Button("Forget Library…") { Task { await model.confirmAndForgetLibrary() } }
+            }
         }
         CommandMenu("Note") {
             Button("Focus Search") { model.focusSearch() }.keyboardShortcut("l")

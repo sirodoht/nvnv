@@ -254,6 +254,19 @@ struct FileCoreTests {
             #expect(result.notes[0].fileSize != nil)
         }
     }
+
+    @Test func settingsRepositoryLoadsCurrentSchema() async throws {
+        try await withTemporaryDirectory { root in
+            let repository = SettingsRepository(url: root.appendingPathComponent("settings.json"))
+            var settings = LibrarySettings()
+            settings.showExcerpts = false
+            settings.editorFontSize = 18
+            try await repository.save(settings)
+
+            let loaded = await repository.load()
+            #expect(loaded == settings)
+        }
+    }
 }
 
 private func setModificationTime(of url: URL, seconds: Int64, nanoseconds: Int64) throws {

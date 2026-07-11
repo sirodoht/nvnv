@@ -5,9 +5,31 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var model: AppModel
     @State private var fontPanelController = EditorFontPanelController()
+    @State private var isForgetConfirmationPresented = false
+    @State private var isResetConfirmationPresented = false
 
     var body: some View {
         Form {
+            Section("Library") {
+                if let libraryURL = model.libraryURL {
+                    LabeledContent("Notes folder") {
+                        Text(libraryURL.path)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(libraryURL.path)
+                    }
+                    HStack {
+                        Button("Choose Another Folder…") { Task { await model.chooseLibrary() } }
+                        Spacer()
+                        Button("Forget Library…", role: .destructive) {
+                            isForgetConfirmationPresented = true
+                        }
+                    }
+                } else {
+                    Button("Choose Notes Folder…") { Task { await model.chooseLibrary() } }
+                }
+            }
             Section("Note List") {
                 Toggle("Show body excerpts", isOn: $model.showExcerpts)
                 Toggle("Show date modified", isOn: $model.showModifiedDate)
@@ -46,10 +68,30 @@ struct SettingsView: View {
                 Text("The default extension is always recognized. Changes take effect on the next filesystem reconciliation.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                Button("Reset Settings…", role: .destructive) {
+                    isResetConfirmationPresented = true
+                }
+                .disabled(model.libraryURL == nil)
+            } footer: {
+                Text("Restores settings for this library. Note files are never changed.")
+            }
         }
         .formStyle(.grouped)
-        .padding().frame(width: 520, height: 520)
+        .padding().frame(width: 560, height: 650)
         .onDisappear { fontPanelController.stop() }
+        .alert("Forget this library?", isPresented: $isForgetConfirmationPresented) {
+            Button("Cancel", role: .cancel) {}
+            Button("Forget Library", role: .destructive) { Task { await model.forgetLibrary() } }
+        } message: {
+            Text("nvnv will return to the welcome screen and stop remembering this folder. Your notes and the folder’s .nvnv data will remain untouched.")
+        }
+        .alert("Reset library settings?", isPresented: $isResetConfirmationPresented) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset Settings", role: .destructive) { Task { await model.resetSettings() } }
+        } message: {
+            Text("Display, editor, safety, and file preferences for this library will return to their defaults. Note files will remain untouched.")
+        }
     }
 
     private var editorFontDisplayName: String {

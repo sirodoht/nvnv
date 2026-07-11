@@ -7,7 +7,9 @@ struct EditorPane: View {
 
     var body: some View {
         Group {
-            if model.selection.isEmpty {
+            if model.isRestoringLibrary {
+                Color.clear
+            } else if model.selection.isEmpty {
                 EmptyEditorMessage("No Note Selected")
             } else if model.selection.count > 1 {
                 EmptyEditorMessage("\(model.selection.count) Notes Selected")

@@ -9,10 +9,10 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if model.libraryURL == nil {
-                WelcomeView(model: model)
-            } else {
+            if model.libraryURL != nil || model.isRestoringLibrary {
                 libraryView
+            } else {
+                WelcomeView(model: model)
             }
         }
         .frame(minWidth: 440, minHeight: 560)
@@ -123,10 +123,6 @@ private struct WelcomeView: View {
     let model: AppModel
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "note.text").font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("nvnv").font(.largeTitle.weight(.semibold))
-            Text("Fast, keyboard-first notes stored as plain text files.")
-                .foregroundStyle(.secondary)
             Button("Open Notes Folder…") { Task { await model.chooseLibrary() } }
                 .buttonStyle(.borderedProminent).controlSize(.large)
         }

@@ -8,6 +8,7 @@ import OSLog
 @Observable
 final class AppModel {
     var libraryURL: URL?
+    private(set) var isRestoringLibrary: Bool
     var notes: [Note] = []
     var results: [SearchResult] = []
     var selection: Set<UUID> = []
@@ -86,6 +87,10 @@ final class AppModel {
     private var pendingListResort = false
     private var navigationHistory: [(String, Set<UUID>)] = []
 
+    init(userDefaults: UserDefaults = .standard) {
+        isRestoringLibrary = userDefaults.string(forKey: "lastLibraryPath") != nil
+    }
+
     var selectedNote: Note? {
         guard selection.count == 1, let id = selection.first else { return nil }
         return notes.first { $0.id == id }
@@ -104,8 +109,15 @@ final class AppModel {
     }
 
     func restoreLastLibrary() async {
-        guard libraryURL == nil,
-              let path = UserDefaults.standard.string(forKey: "lastLibraryPath") else { return }
+        guard libraryURL == nil else {
+            isRestoringLibrary = false
+            return
+        }
+        guard let path = UserDefaults.standard.string(forKey: "lastLibraryPath") else {
+            isRestoringLibrary = false
+            return
+        }
+        defer { isRestoringLibrary = false }
         await openLibrary(URL(fileURLWithPath: path), confirmedAuxiliaryCreation: true)
     }
 
@@ -130,6 +142,90 @@ final class AppModel {
             confirmed = alert.runModal() == .alertFirstButtonReturn
         }
         if confirmed { await openLibrary(url, confirmedAuxiliaryCreation: true) }
+    }
+
+    func forgetLibrary() async {
+        guard libraryURL != nil else { return }
+        do {
+            try await flushAll()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return
+        }
+
+        searchTask?.cancel()
+        visibleResultTask?.cancel()
+        settingsTask?.cancel()
+        for task in deadlineTasks.values { task.cancel() }
+        deadlineTasks.removeAll()
+        reconcileGeneration += 1
+
+        watcher = nil
+        libraryLock = nil
+        repository = nil
+        cache = nil
+        journal = nil
+        settingsRepository = nil
+        isRestoringLibrary = false
+        libraryURL = nil
+        notes = []
+        results = []
+        selection = []
+        selectionKind = .none
+        searchText = ""
+        query = ""
+        searchDocuments = [:]
+        staleSearchDocumentIDs = []
+        cacheIndexedSearchVersions = [:]
+        baseBodies = [:]
+        dirtyNoteIDs = []
+        lastJournaledRevision = [:]
+        journalIDs = [:]
+        journalOperations = [:]
+        journalOperationIDs = [:]
+        duplicateTitleKeys = []
+        navigationHistory = []
+        priorExplicitQuery = nil
+        scanIssues = []
+        conflict = nil
+        isConflictPresented = false
+        isReadOnly = false
+        isIndexing = false
+        isRenaming = false
+        editorFocusRequest = nil
+        listScrollRequest = nil
+        errorMessage = nil
+        transientMessage = nil
+        UserDefaults.standard.removeObject(forKey: "lastLibraryPath")
+    }
+
+    func confirmAndForgetLibrary() async {
+        guard libraryURL != nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "Forget this library?"
+        alert.informativeText = "nvnv will return to the welcome screen and stop remembering this folder. Your notes and the folder’s .nvnv data will remain untouched."
+        alert.addButton(withTitle: "Forget Library")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        await forgetLibrary()
+    }
+
+    func resetSettings() async {
+        guard let settingsRepository else { return }
+        let defaults = LibrarySettings()
+        apply(defaults)
+        searchText = defaults.query
+        query = defaults.query
+        selection = defaults.selectedNoteIDs
+        selectionKind = defaults.selectionKind
+        navigationHistory = []
+        UserDefaults.standard.removeObject(forKey: "noteListModifiedDateColumnWidth")
+        settingsTask?.cancel()
+        do {
+            try await settingsRepository.save(settingsSnapshot())
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 
     func openLibrary(_ url: URL, confirmedAuxiliaryCreation: Bool) async {
@@ -219,7 +315,7 @@ final class AppModel {
         let start = current ?? (offset > 0 ? -1 : results.count)
         let target = min(max(start + offset, 0), results.count - 1)
         select([results[target].id])
-        requestListScroll(to: results[target].id)
+        requestListScroll(to: results[target].id, placement: .minimal)
     }
 
     func userEnteredSearchText(_ value: String) {
@@ -501,8 +597,10 @@ final class AppModel {
         editorFocusRequest = EditorFocusRequest(noteID: noteID)
     }
 
-    private func requestListScroll(to noteID: UUID) {
-        listScrollRequest = ListScrollRequest(noteID: noteID)
+    private func requestListScroll(
+        to noteID: UUID, placement: ListScrollPlacement = .top
+    ) {
+        listScrollRequest = ListScrollRequest(noteID: noteID, placement: placement)
     }
 
     private func commitRename() async {
@@ -1045,4 +1143,10 @@ struct EditorFocusRequest: Equatable {
 struct ListScrollRequest: Equatable {
     let id = UUID()
     let noteID: UUID
+    let placement: ListScrollPlacement
+}
+
+enum ListScrollPlacement: Equatable {
+    case minimal
+    case top
 }
