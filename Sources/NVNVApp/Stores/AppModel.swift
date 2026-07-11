@@ -233,6 +233,7 @@ final class AppModel {
         let selectedURL = url.standardizedFileURL.resolvingSymlinksInPath()
         if let libraryURL,
            libraryURL.standardizedFileURL.resolvingSymlinksInPath() == selectedURL {
+            focusSearch()
             return
         }
         do {
@@ -298,6 +299,7 @@ final class AppModel {
             UserDefaults.standard.set(selectedURL.path, forKey: "lastLibraryPath")
             if !writable { errorMessage = NVNVError.locked.localizedDescription }
             refreshSearch()
+            focusSearch()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
