@@ -104,9 +104,14 @@ public enum SearchSubmitAction: Equatable, Sendable {
 
 public enum SearchService {
     /// Candidate sets at or below this size are cheap enough to search immediately.
-    /// Larger full scans retain a short debounce so rapid typing can cancel them
-    /// before they consume worker time.
+    /// Larger full scans retain a short stabilization window so rapid typing can
+    /// cancel them before they publish an intermediate, expensive list update.
     public static let immediateSearchCandidateLimit = 2_000
+
+    /// A broad result can contain thousands of rows, and publishing it makes
+    /// SwiftUI diff the whole list. Keep that work behind a normal rapid-typing
+    /// interval so the next keystroke can invalidate an intermediate query.
+    public static let broadSearchStabilizationDelay = Duration.milliseconds(100)
 
     /// Returns true when every document matching `next` must also have matched
     /// `previous`. Search is an AND of substring terms, so each old term must be

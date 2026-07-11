@@ -669,20 +669,23 @@ final class AppModel {
         })
         let cache = cache
         let sort = sort
-        let refinementDocuments: [SearchDocument]? = {
+        // Capturing the result array is O(1) (copy-on-write). Materializing its
+        // SearchDocuments used to happen synchronously here, in the TextField
+        // setter, which made the second character proportional to the size of
+        // the first character's result set.
+        let refinementResults: [SearchResult]? = {
             guard staleNotes.isEmpty,
                   lastAppliedSearchDocumentsGeneration == searchDocumentsGeneration,
                   let previousQuery = lastAppliedSearchQuery,
                   SearchService.canIncrementallyRefine(from: previousQuery, to: query) else { return nil }
-            let candidates = results.compactMap { cachedDocuments[$0.id] }
-            return candidates.count == results.count ? candidates : nil
+            return results
         }()
         searchTask?.cancel()
         searchTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
             let worker = Task.detached(priority: .userInitiated) {
                 let candidateIDs: Set<UUID>?
-                if refinementDocuments != nil {
+                if refinementResults != nil {
                     candidateIDs = nil
                 } else {
                     do {
@@ -695,11 +698,11 @@ final class AppModel {
                         candidateIDs = nil
                     }
                 }
-                let candidateCount = refinementDocuments?.count
+                let candidateCount = refinementResults?.count
                     ?? candidateIDs?.count
                     ?? cachedDocuments.count
                 if SearchService.shouldDebounce(candidateCount: candidateCount) {
-                    do { try await Task.sleep(for: .milliseconds(30)) }
+                    do { try await Task.sleep(for: SearchService.broadSearchStabilizationDelay) }
                     catch { return (found: [SearchResult](), refreshed: [SearchDocument]()) }
                 }
                 if Task.isCancelled { return (found: [SearchResult](), refreshed: [SearchDocument]()) }
@@ -714,6 +717,10 @@ final class AppModel {
                     refreshed.append(document)
                 }
                 if Task.isCancelled { return (found: [SearchResult](), refreshed: [SearchDocument]()) }
+                let refinementDocuments = refinementResults.flatMap { previousResults -> [SearchDocument]? in
+                    let candidates = previousResults.compactMap { documents[$0.id] }
+                    return candidates.count == previousResults.count ? candidates : nil
+                }
                 let candidates = refinementDocuments
                     ?? candidateIDs.map { ids in documents.values.filter { ids.contains($0.id) } }
                     ?? Array(documents.values)

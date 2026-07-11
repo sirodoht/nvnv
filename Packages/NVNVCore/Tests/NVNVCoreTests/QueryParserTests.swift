@@ -190,10 +190,11 @@ struct QueryParserTests {
         #expect(incremental == full)
     }
 
-    @Test func smallRefinementsRunWithoutTheFullScanDebounce() {
+    @Test func broadSearchesStabilizeWhileSmallRefinementsRunImmediately() {
         #expect(!SearchService.shouldDebounce(candidateCount: 0))
         #expect(!SearchService.shouldDebounce(candidateCount: SearchService.immediateSearchCandidateLimit))
         #expect(SearchService.shouldDebounce(candidateCount: SearchService.immediateSearchCandidateLimit + 1))
+        #expect(SearchService.broadSearchStabilizationDelay == .milliseconds(100))
     }
 
     @Test func excerptsAreBoundedWithoutScanningForPresentationLines() {
