@@ -51,7 +51,7 @@ notes as you type, opens a matching note, or creates a note from a new title.
 - `⌘O` — choose another notes folder.
 - Standard macOS editing shortcuts work in the editor: `⌘Z`, `⇧⌘Z`, `⌘F`, `⌘X`, `⌘C`, `⌘V`, and `⌘A`.
 
-## Run
+## Build and run from source
 
 Requires macOS 15 or newer and Xcode 26 / Swift 6.2 or newer.
 
@@ -77,6 +77,9 @@ compare-before-replace conflicts, cache rebuildability, and editor text
 transformations. The probe executable verifies FTS5 trigram support, atomic
 replacement, directory durability, and the OS-backed library lock.
 
+## Documentation
+
+The full product behavior is defined in the [nvnv SPEC](spec/SPEC.md).
 Architecture decisions are recorded in [`docs/architecture`](docs/architecture).
 
 ## License
