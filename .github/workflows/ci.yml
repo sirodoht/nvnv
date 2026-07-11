@@ -9,6 +9,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: sudo xcode-select --switch /Applications/Xcode_26.0.app/Contents/Developer
       - name: Toolchain
         run: swift --version
       - name: Build
