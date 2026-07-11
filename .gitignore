@@ -2,6 +2,7 @@
 dist/
 .swiftpm/
 *.xcuserstate
+*.profraw
 .DS_Store
 nvalt/
 example-data/
