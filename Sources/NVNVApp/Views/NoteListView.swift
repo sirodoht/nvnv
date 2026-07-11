@@ -49,12 +49,9 @@ struct NoteListView: View {
                             }
                             .id(result.id)
                             .tag(result.id)
-                            .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
-                            .listRowBackground(
-                                model.selectionKind == .automatic && model.selection.contains(result.id)
-                                    ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.28)
-                                    : Color.clear
-                            )
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(rowBackground(for: result.id))
                             .contextMenu {
                                 Button("Rename") { model.startRename() }
                                     .disabled(model.isReadOnly)
@@ -66,7 +63,7 @@ struct NoteListView: View {
                         }
                     }
                     .listStyle(.plain)
-                    .environment(\.defaultMinListRowHeight, 18)
+                    .environment(\.defaultMinListRowHeight, 16)
                     .overlay {
                         if model.results.isEmpty {
                             ContentUnavailableView(
@@ -92,6 +89,19 @@ struct NoteListView: View {
     }
 
     private var createdColumnWidth: CGFloat { 130 }
+
+    private func rowBackground(for noteID: UUID) -> some View {
+        ZStack(alignment: .bottom) {
+            if model.selectionKind == .automatic && model.selection.contains(noteID) {
+                Color(nsColor: .selectedContentBackgroundColor).opacity(0.28)
+            } else {
+                Color.clear
+            }
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 0.5)
+        }
+    }
 
     private func rowBoundsSentinel(tableWidth: CGFloat) -> some View {
         GeometryReader { geometry in
@@ -257,7 +267,8 @@ private struct NoteRow: View {
                     .frame(width: modifiedColumnWidth, alignment: .leading)
             }
         }
-        .frame(minHeight: 16)
+        .offset(y: -3)
+        .frame(height: 16, alignment: .center)
     }
 
     private var rowText: Text {

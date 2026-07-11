@@ -10,7 +10,7 @@ struct SearchBar: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             TextField(
-                model.isRenaming ? "Rename Note" : "Search notes or enter a new title",
+                model.isRenaming ? "Rename Note" : "Search or Create",
                 text: Binding(
                     get: { model.searchText },
                     set: { model.userEnteredSearchText($0) }

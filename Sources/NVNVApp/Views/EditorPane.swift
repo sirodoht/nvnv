@@ -8,9 +8,9 @@ struct EditorPane: View {
     var body: some View {
         Group {
             if model.selection.isEmpty {
-                ContentUnavailableView("No Note Selected", systemImage: "note.text")
+                EmptyEditorMessage("No Note Selected")
             } else if model.selection.count > 1 {
-                ContentUnavailableView("\(model.selection.count) Notes Selected", systemImage: "square.stack.3d.up")
+                EmptyEditorMessage("\(model.selection.count) Notes Selected")
             } else if let note = model.selectedNote {
                 PlainTextEditor(
                     note: note,
@@ -34,5 +34,20 @@ struct EditorPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct EmptyEditorMessage: View {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var body: some View {
+        Text(message)
+            .font(.system(size: 17, weight: .regular))
+            .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

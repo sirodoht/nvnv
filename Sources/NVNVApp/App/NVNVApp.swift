@@ -10,6 +10,7 @@ struct NVNVApp: App {
             ContentView(model: model)
                 .onAppear { appDelegate.model = model }
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 920, height: 780)
         .commands { NVNVCommands(model: model) }
 
