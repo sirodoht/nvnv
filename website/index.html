@@ -89,6 +89,7 @@
         <a href="#download">Download</a>
         <a href="#screens">Screenshots</a>
         <a href="#shortcuts">Shortcuts</a>
+        <a href="#performance">Performance</a>
         <a
           href="https://github.com/sirodoht/nvnv"
           target="_blank"
@@ -618,14 +619,85 @@
       </section>
 
       <section
+        class="performance-section"
+        id="performance"
+        data-rail-tone="vermilion"
+        data-rail-number="03"
+        aria-labelledby="performance-heading"
+      >
+        <div class="section-shell">
+          <p class="section-number">03</p>
+          <div class="performance-heading">
+            <h2 id="performance-heading">Fast, with<br /><em>receipts.</em></h2>
+            <p>
+              Release-mode engine benchmarks on 10,000 notes with varied,
+              2,048-byte bodies.
+            </p>
+          </div>
+
+          <div class="performance-table-wrap">
+            <table class="performance-table">
+              <thead>
+                <tr><th>Benchmark</th><th>Workload</th><th>Result</th></tr>
+              </thead>
+              <tbody>
+                <tr class="performance-group"><th colspan="3">Search</th></tr>
+                <tr>
+                  <td>Broad cached search</td><td>10,000 notes · all match</td><td>13 ms</td>
+                </tr>
+                <tr>
+                  <td>Selective FTS search</td><td>10,000 notes · one match</td><td>1.8 ms</td>
+                </tr>
+                <tr>
+                  <td>Missing-term search</td><td>10,000 notes · no matches</td><td>12 ms</td>
+                </tr>
+                <tr>
+                  <td>Missing-term load test</td><td>50,000 notes · no matches</td><td>63 ms</td>
+                </tr>
+                <tr class="performance-group"><th colspan="3">Filesystem</th></tr>
+                <tr>
+                  <td>Initial library scan</td><td>10,000 note files</td><td>2.23 s</td>
+                </tr>
+                <tr>
+                  <td>Warm metadata scan</td><td>10,000 unchanged files</td><td>438 ms</td>
+                </tr>
+                <tr>
+                  <td>Incremental external scan</td><td>One changed file of 10,000</td><td>16 ms</td>
+                </tr>
+                <tr class="performance-group"><th colspan="3">Indexing</th></tr>
+                <tr>
+                  <td>Prepare search documents</td><td>10,000 notes × 2 KB</td><td>345 ms</td>
+                </tr>
+                <tr>
+                  <td>Update SQLite + FTS</td><td>One changed note</td><td>12.5 ms</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="performance-methodology">
+            <p>
+              Steady-state results are seven-run medians. Core measurements
+              only; UI and launch timings are not included.
+            </p>
+            <a
+              href="https://github.com/sirodoht/nvnv#performance"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Methodology ↗</a>
+          </div>
+        </div>
+      </section>
+
+      <section
         class="promise section-shell"
         data-rail-tone="acid"
-        data-rail-number="03"
+        data-rail-number="04"
       >
         <div class="promise-sticker" aria-hidden="true">
           <span>BYOC — bring</span><span>your own cloud</span>
         </div>
-        <p class="section-number">03</p>
+        <p class="section-number">04</p>
         <h2>
           Your thoughts.<br /><span>Your machine.</span><br />Your business.
         </h2>
@@ -659,12 +731,12 @@
         class="open-source-section"
         id="open-source"
         data-rail-tone="pink"
-        data-rail-number="04"
+        data-rail-number="05"
       >
         <div class="section-shell">
           <div class="open-source-grid">
             <div class="open-source-copy">
-              <p class="section-number">04</p>
+              <p class="section-number">05</p>
               <h2>Open by<br /><em>nature.</em></h2>
               <p>
                 MIT License. Permission is hereby granted. This software is
@@ -716,10 +788,10 @@
       <section
         class="homage-section"
         data-rail-tone="mustard"
-        data-rail-number="05"
+        data-rail-number="06"
       >
         <div class="section-shell">
-          <p class="section-number">05</p>
+          <p class="section-number">06</p>
           <div class="homage-heading">
             <h2>It's an<br /><em>homage.</em></h2>
             <p>

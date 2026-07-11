@@ -1403,6 +1403,129 @@ body.lightbox-open {
   font-variant-ligatures: none;
 }
 
+/* Performance */
+
+.performance-section {
+  padding-block: 125px 135px;
+  overflow: hidden;
+  background: var(--blue);
+  border-bottom: 2px solid var(--ink);
+}
+.performance-heading {
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr;
+  align-items: end;
+  gap: 70px;
+  margin-bottom: 72px;
+}
+.performance-heading h2 {
+  margin: 0;
+  font-size: clamp(62px, 7.5vw, 108px);
+  line-height: 0.88;
+  letter-spacing: -0.07em;
+}
+.performance-heading h2 em {
+  color: var(--purple);
+  font-family: Georgia, serif;
+  font-weight: 400;
+}
+.performance-heading > p {
+  max-width: 410px;
+  margin: 0 0 7px;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.performance-table-wrap {
+  border: 2px solid var(--ink);
+  background: #fffefb;
+  box-shadow: 9px 10px 0 var(--ink);
+  overflow-x: auto;
+}
+.performance-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.performance-table th, .performance-table td {
+  padding: 18px 22px;
+  border-bottom: 1px solid rgba(21, 21, 21, 0.28);
+  text-align: left;
+}
+.performance-table thead th {
+  background: var(--ink);
+  color: white;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.performance-table th:first-child, .performance-table td:first-child {
+  width: 43%;
+}
+.performance-table th:nth-child(2), .performance-table td:nth-child(2) {
+  width: 37%;
+}
+.performance-table th:last-child, .performance-table td:last-child {
+  width: 20%;
+  text-align: right;
+}
+.performance-table tbody td:first-child {
+  font-size: 14px;
+  font-weight: 800;
+}
+.performance-table tbody td:nth-child(2) {
+  color: #67635d;
+  font-size: 12px;
+}
+.performance-table tbody td:last-child {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+}
+.performance-table .performance-group th {
+  width: auto;
+  padding-block: 10px;
+  background: var(--yellow);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.performance-methodology {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 35px;
+  margin-top: 30px;
+  padding-top: 24px;
+  border-top: 1.5px solid var(--ink);
+}
+.performance-methodology p {
+  max-width: 720px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.65;
+}
+.performance-methodology a {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 15px;
+  border: 1.5px solid var(--ink);
+  color: var(--ink);
+  background: var(--green);
+  box-shadow: 4px 4px 0 var(--ink);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 /* Ownership promise */
 
 .promise {
@@ -1836,6 +1959,13 @@ body.lightbox-open {
     width: 100%;
     margin-top: 40px;
   }
+  .performance-heading {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  .performance-heading > p {
+    max-width: 570px;
+  }
   .open-source-grid {
     grid-template-columns: 1fr;
     gap: 60px;
@@ -1859,6 +1989,13 @@ body.lightbox-open {
 @media (max-width: 900px) {
   body {
     margin-left: 0;
+  }
+  .brand-japanese {
+    display: none;
+  }
+  .nav-links {
+    gap: 20px;
+    font-size: 11px;
   }
   .heritage-rail {
     position: relative;
@@ -2189,6 +2326,38 @@ body.lightbox-open {
   }
   .shortcut-grid > div:last-child {
     border-bottom: 1px solid rgba(21, 21, 21, 0.28);
+  }
+  .performance-section {
+    padding-block: 95px 105px;
+  }
+  .performance-heading {
+    margin-bottom: 48px;
+  }
+  .performance-heading h2 {
+    font-size: 53px;
+  }
+  .performance-heading > p {
+    font-size: 14px;
+  }
+  .performance-table-wrap {
+    box-shadow: 6px 7px 0 var(--ink);
+  }
+  .performance-table th, .performance-table td {
+    padding: 15px 16px;
+  }
+  .performance-table tbody td:first-child {
+    font-size: 12px;
+  }
+  .performance-table tbody td:nth-child(2) {
+    font-size: 10px;
+  }
+  .performance-table tbody td:last-child {
+    font-size: 16px;
+  }
+  .performance-methodology {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 20px;
   }
   .promise {
     padding-block: 120px 110px;
