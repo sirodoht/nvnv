@@ -249,17 +249,21 @@ unrelated pre-search list offset.
 - Deselect Note removes the current selection and restores the exact query that existed immediately before the current note was explicitly opened.
 - If there is no stored prior query, Deselect Note leaves the current query unchanged.
 
-### 6.9 Restored search state
+### 6.9 Fresh launch state
 
-On clean shutdown, nvnv MUST store:
+After opening the remembered library on a new application launch, nvnv MUST:
 
-- Query text
-- Selected note IDs
-- Explicit versus automatic selection state
-- Note-list scroll offset
-- Current note cursor or selection
+- clear the search field;
+- show the complete list in its configured sort order;
+- select no note;
+- show the no-selection editor state;
+- place the note list at its top; and
+- focus the search field.
 
-On next launch it MUST restore valid state after opening the library. Missing notes are omitted from the selection. An invalid list offset is clamped.
+Query text, selected note IDs, selection kind, note-list position, and
+back/snapback history are session-only and MUST NOT be restored across launches.
+The remembered library, display preferences, and per-note cursor metadata MAY
+persist; cursor metadata is not applied until the user selects a note.
 
 ### 6.10 Search execution and SQLite
 
@@ -946,7 +950,8 @@ Full note bodies MUST NOT be placed in routine logs. Diagnostics MAY include IDs
 5. Return opens an explicit selection before considering creation.
 6. Return creates a uniquely titled empty-body note when no explicit or automatic title match exists.
 7. Escape clears search and restores the full sorted list.
-8. Restart restores the last valid query, selection, list offset, and cursor.
+8. Restart reopens the remembered library with an empty query, no selection,
+   the complete sorted note list scrolled to the top, and search focused.
 9. A query matches a substring occurring in the middle of a title or body word.
 10. One- and two-character queries return complete, correct results.
 11. An unsaved body edit immediately affects search through the in-memory overlay without becoming the last-saved SQLite row.

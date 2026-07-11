@@ -2,6 +2,8 @@ import Foundation
 
 public struct LibrarySettings: Codable, Equatable, Sendable {
     public var schemaVersion = 3
+    // Retained for decoding older settings files. Current nvnv sessions neither
+    // restore nor persist search and selection state across launches.
     public var query = ""
     public var selectedNoteIDs: Set<UUID> = []
     public var selectionKind: SelectionKind = .none

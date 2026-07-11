@@ -266,7 +266,8 @@ Tests:
 - Keyboard-only navigation from search to list to editor and back.
 - Sorting and filtering preserve valid selection.
 - Duplicate stems remain visually distinguishable.
-- Divider, columns, query, list offset, selection, and cursor restore after relaunch.
+- Divider, columns, and per-note cursor metadata persist after relaunch; query,
+  selection, and list offset reset to the fresh launch state.
 - Late search results do not disturb current focus or selection.
 
 Exit gate:
@@ -377,7 +378,8 @@ Deliverables:
 - Delete-confirmation and search-highlighting preferences.
 - Complete keyboard command table and menu exposure.
 - Session back/snapback behavior.
-- Persisted query, selection, list offset, cursor, columns, divider, and window state.
+- Session-only query, selection, list offset, and back/snapback state.
+- Persisted per-note cursor metadata, columns, divider, and window state.
 
 Tests:
 

@@ -14,7 +14,8 @@
 - Clear the current search with Escape.
 - Deselect the current note and return to the prior search.
 - Highlight search matches.
-- Restore the last query, selected note, list position, and cursor position after relaunch.
+- Reopen the remembered library with an empty search, no selected note, and the
+  complete note list scrolled to the top.
 - Automatic saving with no normal Save command.
 - Prevent outdated asynchronous searches from replacing newer results.
 

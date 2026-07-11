@@ -85,6 +85,7 @@ final class AppModel {
     private var priorExplicitQuery: String?
     private var settingsTask: Task<Void, Never>?
     private var pendingListResort = false
+    private var scrollToTopAfterNextSearch = false
     private var navigationHistory: [(String, Set<UUID>)] = []
 
     init(userDefaults: UserDefaults = .standard) {
@@ -274,10 +275,13 @@ final class AppModel {
             recomputeDuplicateTitleKeys()
             self.baseBodies = Dictionary(uniqueKeysWithValues: scan.notes.map { ($0.id, $0.body) })
             self.scanIssues = scan.issues
-            selection = settings.selectedNoteIDs.intersection(Set(notes.map(\.id)))
-            selectionKind = selection.isEmpty ? .none : settings.selectionKind
-            searchText = settings.query
-            query = settings.query
+            selection = []
+            selectionKind = .none
+            searchText = ""
+            query = ""
+            navigationHistory = []
+            priorExplicitQuery = nil
+            listScrollRequest = nil
             if writable, let cache {
                 do {
                     try cache.replaceAll(with: scan.notes)
@@ -298,6 +302,7 @@ final class AppModel {
             }
             UserDefaults.standard.set(selectedURL.path, forKey: "lastLibraryPath")
             if !writable { errorMessage = NVNVError.locked.localizedDescription }
+            scrollToTopAfterNextSearch = true
             refreshSearch()
             focusSearch()
         } catch {
@@ -313,7 +318,6 @@ final class AppModel {
         selection = ids.intersection(Set(results.map(\.id)))
         selectionKind = selection.isEmpty ? .none : (explicitly ? .explicit : .automatic)
         populateSelectedHighlightRanges()
-        persistSettingsSoon()
     }
 
     func moveSelection(by offset: Int) {
@@ -750,6 +754,12 @@ final class AppModel {
             selectionKind = .none
         }
         populateSelectedHighlightRanges()
+        if scrollToTopAfterNextSearch {
+            scrollToTopAfterNextSearch = false
+            if let first = found.first {
+                requestListScroll(to: first.id, placement: .top)
+            }
+        }
     }
 
     private func populateSelectedHighlightRanges() {
@@ -1090,9 +1100,12 @@ final class AppModel {
 
     private func settingsSnapshot() -> LibrarySettings {
         var settings = LibrarySettings()
-        settings.query = query
-        settings.selectedNoteIDs = selection
-        settings.selectionKind = selectionKind
+        // Search, selection, and list position are intentionally session-only.
+        // Keep writing empty legacy fields so older settings files converge to
+        // the fresh-launch behavior without requiring a schema migration.
+        settings.query = ""
+        settings.selectedNoteIDs = []
+        settings.selectionKind = .none
         settings.sort = sort
         settings.dividerFraction = dividerFraction
         settings.showModifiedDate = showModifiedDate
