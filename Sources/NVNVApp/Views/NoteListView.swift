@@ -64,15 +64,6 @@ struct NoteListView: View {
                     }
                     .listStyle(.plain)
                     .environment(\.defaultMinListRowHeight, 16)
-                    .overlay {
-                        if model.results.isEmpty && !model.isRestoringLibrary {
-                            ContentUnavailableView(
-                                model.query.isEmpty ? "No Notes" : "No Matches",
-                                systemImage: model.query.isEmpty ? "note.text" : "magnifyingglass",
-                                description: Text(model.query.isEmpty ? "Type a title above and press Return to create a note." : "Press Return to create “\(model.query)” as a note.")
-                            )
-                        }
-                    }
                     .onChange(of: model.listScrollRequest) { _, _ in
                         fulfillScrollRequest(using: proxy)
                     }
@@ -208,6 +199,7 @@ struct NoteListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusable(false)
         .font(.system(size: 11, weight: .regular))
         .padding(.horizontal, 4)
     }

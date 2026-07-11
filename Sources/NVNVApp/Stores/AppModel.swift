@@ -230,10 +230,15 @@ final class AppModel {
 
     func openLibrary(_ url: URL, confirmedAuxiliaryCreation: Bool) async {
         guard confirmedAuxiliaryCreation else { return }
+        let selectedURL = url.standardizedFileURL.resolvingSymlinksInPath()
+        if let libraryURL,
+           libraryURL.standardizedFileURL.resolvingSymlinksInPath() == selectedURL {
+            return
+        }
         do {
             try await flushAll()
-            try scanner.validate(url)
-            let auxiliary = url.appendingPathComponent(".nvnv", isDirectory: true)
+            try scanner.validate(selectedURL)
+            let auxiliary = selectedURL.appendingPathComponent(".nvnv", isDirectory: true)
             try FileManager.default.createDirectory(at: auxiliary, withIntermediateDirectories: true)
             let lock = try LibraryLock(auxiliaryDirectory: auxiliary)
             let writable = lock.isWritable
@@ -253,12 +258,12 @@ final class AppModel {
             }
             let cached = (try? cache?.cachedNotes()) ?? []
             let cachedByFilename = Dictionary(uniqueKeysWithValues: cached.map { ($0.filename, $0) })
-            let scan = try scanner.scan(directory: url, recognizedExtensions: settings.recognizedExtensions, cached: cachedByFilename)
+            let scan = try scanner.scan(directory: selectedURL, recognizedExtensions: settings.recognizedExtensions, cached: cachedByFilename)
 
-            self.libraryURL = url
+            self.libraryURL = selectedURL
             self.libraryLock = lock
             self.isReadOnly = !writable
-            self.repository = FileRepository(libraryURL: url)
+            self.repository = FileRepository(libraryURL: selectedURL)
             self.cache = cache
             self.settingsRepository = settingsRepository
             self.journal = writable ? try RecoveryJournal(directory: auxiliary.appendingPathComponent("journal")) : nil
@@ -287,10 +292,10 @@ final class AppModel {
                 cacheIndexedSearchVersions = [:]
             }
             await replayJournal()
-            watcher = DirectoryWatcher(url: url) { [weak self] in
+            watcher = DirectoryWatcher(url: selectedURL) { [weak self] in
                 Task { @MainActor in await self?.reconcileExternalChanges() }
             }
-            UserDefaults.standard.set(url.path, forKey: "lastLibraryPath")
+            UserDefaults.standard.set(selectedURL.path, forKey: "lastLibraryPath")
             if !writable { errorMessage = NVNVError.locked.localizedDescription }
             refreshSearch()
         } catch {
