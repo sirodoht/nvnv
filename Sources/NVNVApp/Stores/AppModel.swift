@@ -1022,7 +1022,8 @@ final class AppModel {
                     transientMessage = "“\(disk.title)” changed outside nvnv. Its undo history was cleared."
                 }
             }
-            for old in notes where !scan.notes.contains(where: { $0.filename == old.filename }) {
+            let scannedFilenames = Set(scan.notes.map(\.filename))
+            for old in notes where !scannedFilenames.contains(old.filename) {
                 if dirtyNoteIDs.contains(old.id) {
                     conflict = Conflict(noteID: old.id, baseBody: baseBodies[old.id] ?? "", appBody: old.body, fileBody: "", fileHash: "")
                     reconciled.append(old)
