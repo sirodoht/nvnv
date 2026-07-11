@@ -297,8 +297,8 @@ final class AppModel {
                 cacheIndexedSearchVersions = [:]
             }
             await replayJournal()
-            watcher = DirectoryWatcher(url: selectedURL) { [weak self] in
-                Task { @MainActor in await self?.reconcileExternalChanges() }
+            watcher = DirectoryWatcher(url: selectedURL) { [weak self] change in
+                Task { @MainActor in await self?.reconcileExternalChanges(change) }
             }
             UserDefaults.standard.set(selectedURL.path, forKey: "lastLibraryPath")
             if !writable { errorMessage = NVNVError.locked.localizedDescription }
@@ -976,7 +976,7 @@ final class AppModel {
         )
     }
 
-    private func reconcileExternalChanges() async {
+    private func reconcileExternalChanges(_ change: DirectoryWatcher.Change) async {
         guard let libraryURL else { return }
         reconcileGeneration += 1
         let generation = reconcileGeneration
