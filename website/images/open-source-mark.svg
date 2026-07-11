@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-labelledby="title desc">
+  <title id="title">Open Source</title>
+  <desc id="desc">An open keyhole inside a purple circle.</desc>
+  <circle cx="160" cy="145" r="116" fill="#7759ff" stroke="#151515" stroke-width="7" />
+  <path
+    d="M160 84a43 43 0 0 0-24 79l-42 111h132l-42-111a43 43 0 0 0-24-79Z"
+    fill="#e7e7e2"
+    stroke="#151515"
+    stroke-width="7"
+    stroke-linejoin="round"
+  />
+</svg>

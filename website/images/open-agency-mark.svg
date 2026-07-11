@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-labelledby="title desc">
+  <title id="title">Open Agency</title>
+  <desc id="desc">A command prompt inside an open purple portal, with an orange spark.</desc>
+  <circle cx="160" cy="145" r="120" fill="#151515" />
+  <circle cx="160" cy="145" r="112" fill="#7759ff" />
+  <path
+    d="M92 82h136c12 0 22 10 22 22v83c0 12-10 22-22 22h-53l-41 37 10-37H92c-12 0-22-10-22-22v-83c0-12 10-22 22-22Z"
+    fill="#151515"
+  />
+  <path
+    d="M95 90h130c9 0 17 8 17 17v77c0 9-8 17-17 17h-56l-24 22 6-22H95c-9 0-17-8-17-17v-77c0-9 8-17 17-17Z"
+    fill="#f4f0e7"
+  />
+  <path d="M102 113h15l34 34-34 34h-15l34-34Z" fill="#151515" />
+  <rect x="161" y="169" width="52" height="11" rx="5.5" fill="#151515" />
+  <path d="m215 97 8 18 18 8-18 8-8 18-8-18-18-8 18-8Z" fill="#151515" />
+  <path d="m215 106 5 12 12 5-12 5-5 12-5-12-12-5 12-5Z" fill="#ff6b3d" />
+</svg>
