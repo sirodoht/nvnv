@@ -50,9 +50,9 @@ phrase, AND, and Unicode rules to every candidate. SQLite never decides whether
 a note is an exact match and never controls result ordering.
 
 Candidate sets of 2,000 documents or fewer run immediately. Larger scans wait
-30 milliseconds so rapid input can cancel obsolete work before it consumes a
-worker. Incremental refinements often avoid both the full-library scan and this
-debounce.
+100 milliseconds so rapid input can cancel obsolete work before it consumes a
+worker or publishes an expensive intermediate list. Incremental refinements
+often avoid both the full-library scan and this stabilization delay.
 
 ## Editing and list stability
 
@@ -148,9 +148,10 @@ Unit and integration tests currently cover:
   cache-migration cases; and
 - presentation-date reuse, invalidation, and context changes.
 
-`nvnv-probes --performance` constructs 10,000 in-memory search documents and
-reports the elapsed time for a cached full search. It is a diagnostic smoke
-probe, not a stable benchmark or enforcement of the specification's percentile
-targets. The current suite does not yet measure the complete UI search path,
-incremental scan latency, deferred editing refresh, note-list rendering, or
-memory high-water marks on documented baseline hardware.
+`nvnv-probes --performance` remains a quick cached-search smoke probe.
+`nvnv-probes --benchmark` measures release-mode normalization, cached and FTS
+searches, SQLite index construction and updates, complete and targeted scans,
+and a 50,000-note search load. These are reproducible engine benchmarks rather
+than enforcement of the specification's percentile targets. The current suite
+does not yet measure the complete UI search path, deferred editing refresh,
+note-list rendering, application-launch latency, or memory high-water marks.

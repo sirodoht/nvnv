@@ -77,6 +77,40 @@ compare-before-replace conflicts, cache rebuildability, and editor text
 transformations. The probe executable verifies FTS5 trigram support, atomic
 replacement, directory durability, and the OS-backed library lock.
 
+## Performance
+
+Release-mode engine benchmarks use deterministic notes with 2,048-byte varied
+ASCII bodies. Unless noted otherwise, the figures below are medians of seven
+runs after one warm-up. They were measured in July 2026 on a 10-core Apple M1
+Max MacBook Pro with 64 GB RAM, running macOS 26.5.2.
+
+| Workload | Result |
+| --- | ---: |
+| Build normalized search documents for 10,000 notes | 345 ms |
+| Search 10,000 cached notes, all notes matching | 13 ms |
+| Search 10,000 cached notes, no notes matching | 12 ms |
+| Selective FTS search across 10,000 notes, one match | 1.8 ms |
+| Update one note in SQLite and the FTS index | 12.5 ms |
+| Initial filesystem scan of 10,000 notes | 2.23 s |
+| Warm metadata scan of 10,000 unchanged notes | 438 ms |
+| Scan one externally changed file in a 10,000-note library | 16 ms |
+| Search 50,000 cached notes, no notes matching | 63 ms |
+
+The initial scan is a single-run setup measurement; steady-state rows use the
+seven-sample method above.
+
+These are core search, indexing, and filesystem measurements; they do not
+include SwiftUI list rendering or complete application-launch latency. The load
+test also identifies a current bottleneck: constructing the complete SQLite
+trigram index for 10,000 × 2 KB notes takes about 27 seconds. Cache construction
+is therefore not represented by the steady-state search figures above.
+
+Run the same benchmark locally with:
+
+```bash
+swift run -c release --package-path Packages/NVNVCore nvnv-probes --benchmark
+```
+
 ## Documentation
 
 The full product behavior is defined in the [nvnv SPEC](spec/SPEC.md).
