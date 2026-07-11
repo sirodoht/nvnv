@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SearchBar: View {
@@ -45,7 +46,12 @@ struct SearchBar: View {
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
-        .onChange(of: model.focusSearchGeneration) { _, _ in focused = true }
+        .onChange(of: model.focusSearchGeneration) { _, _ in
+            focused = true
+            DispatchQueue.main.async {
+                NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+            }
+        }
         .onAppear { focused = true }
     }
 }
