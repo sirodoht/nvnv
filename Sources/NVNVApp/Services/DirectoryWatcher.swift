@@ -84,6 +84,9 @@ final class DirectoryWatcher: @unchecked Sendable {
                 | kFSEventStreamEventFlagRootChanged
                 | kFSEventStreamEventFlagMount
                 | kFSEventStreamEventFlagUnmount
+                // FSEvents can report only one side of a rename. A full scan is
+                // required to discover the authoritative old/new path pair.
+                | kFSEventStreamEventFlagItemRenamed
         )
         return flags & mask != 0
     }
