@@ -4,3 +4,4 @@ dist/
 *.xcuserstate
 .DS_Store
 nvalt/
+example-data/

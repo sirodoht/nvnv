@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="nvnv is a fast, keyboard-first plain-text notes app — a modern re-imagining of nvALT."
+    />
+    <meta name="theme-color" content="#fbf5e9" />
+    <title>nvnv — notes at the speed of thought</title>
+    <link rel="icon" type="image/png" href="./images/nvnv-logo.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+    <aside class="heritage-rail" data-tone="mustard" aria-label="驚的速記">
+      <div class="rail-inner" aria-hidden="true">
+        <div class="rail-utility">
+          <span>NOTATIONAL<br />VELOCITY<br />NOTATIONAL<br />VELOCITY<br /></span>
+        </div>
+        <div class="rail-characters" lang="zh-Hant"><span class="rail-pair-one">驚的</span><span class="rail-pair-two">速記</span></div>
+        <div class="rail-context">
+          <span class="rail-number">00</span>
+        </div>
+        <div class="rail-meter"><i></i></div>
+      </div>
+    </aside>
+
+    <header class="site-header">
+      <div class="brand-lockup">
+        <a class="brand" href="#top" aria-label="nvnv home">
+          <img class="brand-logo" src="./images/nvnv-logo.png" alt="" width="52" height="52" />
+          <span class="brand-mark"><span>n</span><span>v</span><span>n</span><span>v</span></span>
+        </a>
+        <span class="brand-japanese" lang="ja">ノテイショナルヴェロシティ</span>
+      </div>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="https://github.com/sirodoht/nvnv">GitHub ↗</a>
+      </nav>
+      <a class="tiny-github" href="https://github.com/sirodoht/nvnv" aria-label="View nvnv on GitHub">GH ↗</a>
+    </header>
+
+    <main id="top">
+      <section class="hero section-shell" data-rail-tone="mustard" data-rail-number="00" data-rail-label="起點 / START">
+        <div class="hero-copy reveal">
+          <div class="eyebrow"><span class="eyebrow-dot"></span> introducing an implementation of notational velocity</div>
+          <h1 class="hero-title-product">nvnv<br /><em>stores and</em><br />retrieves<br />notes<span class="period">.</span></h1>
+          <div class="hero-intro">
+            <p>It is an attempt to loosen the mental blockages to recording information and to scrape away the tartar of convention that handicaps its retrieval. The solution is by nature nonconformist.</p>
+          </div>
+          <div class="hero-actions">
+            <a class="button button-dark" href="https://github.com/sirodoht/nvnv">
+              <span>View on GitHub</span><span aria-hidden="true">↗</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="hero-stage reveal reveal-delay" id="demo">
+          <div class="spark spark-one" aria-hidden="true">✦</div>
+          <div class="spark spark-two" aria-hidden="true">✷</div>
+
+          <div class="nv-flow" aria-label="Search or title, filtered note list, and selected note content">
+            <svg class="flow-connector" viewBox="0 0 200 420" aria-hidden="true">
+              <path class="flow-arrow-shape" d="M78 14Q78 5 87 5h26q9 0 9 9v266h46q11 0 4 10l-62 86q-10 14-20 0l-62-86q-7-10 4-10h46Z" />
+            </svg>
+
+            <div class="flow-panel flow-panel-search">
+              <strong class="flow-label">Search / Title</strong>
+            </div>
+
+            <div class="flow-panel flow-panel-list">
+              <strong class="flow-label">Filtered Note List</strong>
+            </div>
+
+            <div class="flow-panel flow-panel-content">
+              <strong class="flow-label">Content of Selected Note</strong>
+            </div>
+            <p class="flow-japanese" lang="ja">プログラムの使用</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="manifesto section-shell" id="how" data-rail-tone="vermilion" data-rail-number="01" data-rail-label="意念 / THE IDEA">
+        <div class="section-number">01</div>
+        <div class="manifesto-grid">
+          <h2>Your notes should<br />feel like <span>reflex.</span></h2>
+          <div class="manifesto-copy">
+            <p>
+              nvnv keeps search, creation, and writing in one continuous motion. No folders to tend.
+              No save button to remember. No tiny database holding your thoughts hostage.
+            </p>
+            <p class="scribble"><span>think</span> → type → found</p>
+          </div>
+        </div>
+
+        <div class="flow-grid">
+          <article class="flow-card flow-search">
+            <span class="flow-index">A</span>
+            <div class="flow-icon" aria-hidden="true"><span class="search-glyph"></span></div>
+            <h3>Type anything</h3>
+            <p>One field searches every title and body as quickly as you can think.</p>
+            <div class="mini-search"><i class="search-glyph" aria-hidden="true"></i><span>mushroom risotto</span><b></b></div>
+          </article>
+          <article class="flow-card flow-find">
+            <span class="flow-index">B</span>
+            <div class="flow-icon">↳</div>
+            <h3>Find—or make</h3>
+            <p>Jump to a match. No match? Press Return and the query becomes a new note.</p>
+            <div class="mini-result"><span>↵</span><div><b>Create note</b><small>“mushroom risotto”</small></div></div>
+          </article>
+          <article class="flow-card flow-write">
+            <span class="flow-index">C</span>
+            <div class="flow-icon">✎</div>
+            <h3>Keep moving</h3>
+            <p>Write in plain text. nvnv saves automatically, quietly, and safely.</p>
+            <div class="mini-copy">butter, thyme, <u>porcini</u><span></span></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="ticker" aria-label="nvnv qualities">
+        <div class="ticker-track">
+          <div class="ticker-group">
+            <span>keyboard first</span><b>✽</b><span>plain text</span><b>✽</b><span>local forever</span><b>✽</b><span>open source</span><b>✽</b>
+          </div>
+          <div class="ticker-group" aria-hidden="true">
+            <span>keyboard first</span><b>✽</b><span>plain text</span><b>✽</b><span>local forever</span><b>✽</b><span>open source</span><b>✽</b>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-zone" id="features" data-rail-tone="violet" data-rail-number="02" data-rail-label="機能 / FEATURES">
+        <div class="section-shell">
+          <div class="section-number light">02</div>
+          <div class="feature-heading">
+            <h2>Unique<br /><i>characteristics.</i></h2>
+            <p>Four principles.</p>
+          </div>
+
+          <div class="bento-grid">
+            <article class="bento bento-keyboard">
+              <span class="pill">MOUSELESS INTERACTION</span>
+              <h3>Keyboard input<br />above all else.</h3>
+              <div class="key-cloud" aria-hidden="true">
+                <kbd>⌘</kbd><kbd>K</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>↵</kbd><kbd>esc</kbd>
+              </div>
+              <p>nvnv's window was designed for keyboard input above all else, and thus has no buttons.</p>
+            </article>
+
+            <article class="bento bento-files">
+              <span class="pill">DATA INSTEAD OF DOCUMENTS</span>
+              <div class="file-stack" aria-hidden="true">
+                <div class="file file-back">.md</div>
+                <div class="file file-mid">.txt</div>
+                <div class="file file-front"><span>weekend ideas</span><b>✦</b></div>
+              </div>
+              <h3>No save<br />button.</h3>
+              <p>There is no manual “saving” in nvnv; all modifications take effect immediately.</p>
+            </article>
+
+            <article class="bento bento-search">
+              <span class="pill">INCREMENTAL SEARCH</span>
+              <h3>Instant with<br />every key.</h3>
+              <div class="query-lines" aria-hidden="true">
+                <p><span>scope</span> all notes</p>
+                <p><span>content</span> titles + bodies</p>
+                <p><span>speed</span> every key pressed</p>
+              </div>
+            </article>
+
+            <article class="bento bento-safe">
+              <span class="pill">MODELESS OPERATION</span>
+              <h3>Search is the<br />interface.</h3>
+              <p>Searching for notes is not a separate action; rather, it is the primary interface.</p>
+              <div class="safe-orbit" aria-hidden="true">
+                <span class="safe-core"><span class="search-glyph" aria-hidden="true"></span></span><i class="satellite sat-one">find</i><i class="satellite sat-two">select</i><i class="satellite sat-three">write</i>
+              </div>
+            </article>
+
+            <article class="bento bento-details">
+              <span class="pill">UNIQUE CHARACTERISTICS</span>
+              <h3>Four ideas,<br /><em>one interface.</em></h3>
+              <ul>
+                <li><span>01</span> modeless operation</li>
+                <li><span>02</span> incremental search</li>
+                <li><span>03</span> mouseless interaction</li>
+                <li><span>04</span> data instead of documents</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="promise section-shell" data-rail-tone="acid" data-rail-number="03" data-rail-label="承諾 / PROMISE">
+        <div class="promise-sticker" aria-hidden="true"><span>BYOC — bring</span><span>your own cloud</span></div>
+        <p class="section-number">03</p>
+        <h2>Your thoughts.<br /><span>Your machine.</span><br />Your business.</h2>
+        <div class="promise-foot">
+          <p>
+            nvnv watches your files, plays nicely with external edits, and keeps its index disposable.
+            Your notes outlive the app—as they should.
+          </p>
+          <div class="plain-badge"><b>.txt</b><span>portable<br />by design</span></div>
+        </div>
+      </section>
+
+      <section class="open-source-section" id="open-source" data-rail-tone="pink" data-rail-number="04" data-rail-label="開源 / OPEN SOURCE">
+        <div class="section-shell">
+          <div class="open-source-banner">
+            <strong>NVNV IS OPEN SOURCE</strong>
+            <span lang="zh-Hant">公開原始碼</span>
+          </div>
+          <div class="open-source-grid">
+            <div class="open-source-copy">
+              <p class="section-number">04</p>
+              <h2>Open by<br /><em>nature.</em></h2>
+              <p>nvnv is built in public. Read the source, report an issue, fork it, or help shape the next version.</p>
+              <a class="open-source-link" href="https://github.com/sirodoht/nvnv">
+                <span>github.com/sirodoht/nvnv</span><span aria-hidden="true">↗</span>
+              </a>
+              <dl class="open-source-meta">
+                <div><dt>CODE</dt><dd>Visible</dd></div>
+                <div><dt>ISSUES</dt><dd>Welcome</dd></div>
+                <div><dt>NOTES</dt><dd>Still yours</dd></div>
+              </dl>
+            </div>
+            <div class="open-source-emblem" aria-hidden="true">
+              <svg viewBox="0 0 320 320" role="img">
+                <circle cx="160" cy="145" r="116" fill="currentColor" stroke="#151515" stroke-width="7" />
+                <path d="M160 84a43 43 0 0 0-24 79l-42 111h132l-42-111a43 43 0 0 0-24-79Z" fill="#e7e7e2" stroke="#151515" stroke-width="7" stroke-linejoin="round" />
+              </svg>
+              <div class="emblem-wordmark"><strong>open</strong><span>source</span></div>
+              <small>READ · FORK · CHANGE · SHARE</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="final-cta">
+        <div class="cta-shape shape-a" aria-hidden="true"></div>
+        <div class="cta-shape shape-b" aria-hidden="true"></div>
+        <div class="cta-copy">
+          <span class="open-pill"><i></i> OPEN SOURCE</span>
+          <h2>Ready when<br />the thought is.</h2>
+          <p>Follow along, read the source, or help shape what nvnv becomes.</p>
+          <a class="button button-light" href="https://github.com/sirodoht/nvnv">
+            <span>github.com/sirodoht/nvnv</span><span>↗</span>
+          </a>
+        </div>
+        <div class="cta-logo" aria-hidden="true">nv<span>n</span>v</div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a class="brand footer-brand" href="#top" aria-label="nvnv home">
+        <img class="brand-logo" src="./images/nvnv-logo.png" alt="" width="40" height="40" />
+        <span>nvnv</span>
+      </a>
+      <p>Made for people who think in text.</p>
+      <p>Open source · <span id="year"></span></p>
+    </footer>
+
+    <script src="./script.js" defer></script>
+  </body>
+</html>
