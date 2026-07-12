@@ -115,6 +115,7 @@ swift run -c release --package-path Packages/NVNVCore nvnv-probes --benchmark
 
 The full product behavior is defined in the [nvnv SPEC](spec/SPEC.md).
 Architecture decisions are recorded in [`docs/architecture`](docs/architecture).
+Release history is recorded in the [changelog](CHANGELOG.md).
 
 ## License
 
