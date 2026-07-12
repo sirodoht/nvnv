@@ -78,6 +78,7 @@ const lightboxCount = screenshotLightbox?.querySelector(".lightbox-count");
 const lightboxClose = screenshotLightbox?.querySelector(".lightbox-close");
 const lightboxPrevious = screenshotLightbox?.querySelector(".lightbox-prev");
 const lightboxNext = screenshotLightbox?.querySelector(".lightbox-next");
+const desktopScreenshotGallery = window.matchMedia("(min-width: 641px)");
 let lightboxIndex = 0;
 let lightboxReturnFocus;
 
@@ -126,12 +127,32 @@ if (
   lightboxPrevious &&
   lightboxNext
 ) {
+  screenshotLinks.forEach((link) => {
+    link.dataset.galleryHref = link.getAttribute("href");
+  });
+
+  function syncScreenshotGallery() {
+    screenshotLinks.forEach((link) => {
+      if (desktopScreenshotGallery.matches) {
+        link.setAttribute("href", link.dataset.galleryHref);
+      } else {
+        link.removeAttribute("href");
+      }
+    });
+
+    if (!desktopScreenshotGallery.matches) closeScreenshotGallery();
+  }
+
   screenshotLinks.forEach((link, index) => {
     link.addEventListener("click", (event) => {
       event.preventDefault();
+      if (!desktopScreenshotGallery.matches) return;
       openScreenshotGallery(index, link);
     });
   });
+
+  desktopScreenshotGallery.addEventListener("change", syncScreenshotGallery);
+  syncScreenshotGallery();
 
   lightboxPrevious.addEventListener(
     "click",

@@ -638,38 +638,74 @@
           <div class="performance-table-wrap">
             <table class="performance-table">
               <thead>
-                <tr><th>Benchmark</th><th>Workload</th><th>Result</th></tr>
+                <tr><th>Benchmark / workload</th><th>Result</th></tr>
               </thead>
               <tbody>
-                <tr class="performance-group"><th colspan="3">Search</th></tr>
+                <tr class="performance-group"><th colspan="2">Search</th></tr>
                 <tr>
-                  <td>Broad cached search</td><td>10,000 notes · all match</td><td>13 ms</td>
+                  <th class="performance-test" scope="row">
+                    <strong>Broad cached search</strong>
+                    <span>10,000 notes · all match</span>
+                  </th>
+                  <td>13 ms</td>
                 </tr>
                 <tr>
-                  <td>Selective FTS search</td><td>10,000 notes · one match</td><td>1.8 ms</td>
+                  <th class="performance-test" scope="row">
+                    <strong>Selective FTS search</strong>
+                    <span>10,000 notes · one match</span>
+                  </th>
+                  <td>1.8 ms</td>
                 </tr>
                 <tr>
-                  <td>Missing-term search</td><td>10,000 notes · no matches</td><td>12 ms</td>
+                  <th class="performance-test" scope="row">
+                    <strong>Missing-term search</strong>
+                    <span>10,000 notes · no matches</span>
+                  </th>
+                  <td>12 ms</td>
                 </tr>
                 <tr>
-                  <td>Missing-term load test</td><td>50,000 notes · no matches</td><td>63 ms</td>
+                  <th class="performance-test" scope="row">
+                    <strong>Missing-term load test</strong>
+                    <span>50,000 notes · no matches</span>
+                  </th>
+                  <td>63 ms</td>
                 </tr>
-                <tr class="performance-group"><th colspan="3">Filesystem</th></tr>
+                <tr class="performance-group"><th colspan="2">Filesystem</th></tr>
                 <tr>
-                  <td>Initial library scan</td><td>10,000 note files</td><td>2.23 s</td>
-                </tr>
-                <tr>
-                  <td>Warm metadata scan</td><td>10,000 unchanged files</td><td>438 ms</td>
-                </tr>
-                <tr>
-                  <td>Incremental external scan</td><td>One changed file of 10,000</td><td>16 ms</td>
-                </tr>
-                <tr class="performance-group"><th colspan="3">Indexing</th></tr>
-                <tr>
-                  <td>Prepare search documents</td><td>10,000 notes × 2 KB</td><td>345 ms</td>
+                  <th class="performance-test" scope="row">
+                    <strong>Initial library scan</strong>
+                    <span>10,000 note files</span>
+                  </th>
+                  <td>2.23 s</td>
                 </tr>
                 <tr>
-                  <td>Update SQLite + FTS</td><td>One changed note</td><td>12.5 ms</td>
+                  <th class="performance-test" scope="row">
+                    <strong>Warm metadata scan</strong>
+                    <span>10,000 unchanged files</span>
+                  </th>
+                  <td>438 ms</td>
+                </tr>
+                <tr>
+                  <th class="performance-test" scope="row">
+                    <strong>Incremental external scan</strong>
+                    <span>One changed file of 10,000</span>
+                  </th>
+                  <td>16 ms</td>
+                </tr>
+                <tr class="performance-group"><th colspan="2">Indexing</th></tr>
+                <tr>
+                  <th class="performance-test" scope="row">
+                    <strong>Prepare search documents</strong>
+                    <span>10,000 notes × 2 KB</span>
+                  </th>
+                  <td>345 ms</td>
+                </tr>
+                <tr>
+                  <th class="performance-test" scope="row">
+                    <strong>Update SQLite + FTS</strong>
+                    <span>One changed note</span>
+                  </th>
+                  <td>12.5 ms</td>
                 </tr>
               </tbody>
             </table>
@@ -862,7 +898,40 @@
           <div class="footer-wordmark" aria-hidden="true">
             nv<span>n</span>v
           </div>
-          <p>Notes at the speed of thought.</p>
+          <svg
+            class="footer-mobile-lockup"
+            viewBox="0 0 330 150"
+            aria-hidden="true"
+          >
+            <defs>
+              <mask
+                id="footer-cream-letter-mask"
+                x="0"
+                y="0"
+                width="330"
+                height="150"
+                maskUnits="userSpaceOnUse"
+              >
+                <text class="footer-mobile-wordmark" x="0" y="112" fill="white"
+                >nv<tspan fill="black">n</tspan>v</text>
+              </mask>
+            </defs>
+            <text
+              class="footer-mobile-wordmark footer-mobile-wordmark-main"
+              x="0"
+              y="112"
+            >nv<tspan>n</tspan>v</text>
+            <g transform="rotate(-1 10 92)">
+              <text class="footer-mobile-tagline" x="10" y="92"
+              >notes at the speed of thought.</text>
+              <text
+                class="footer-mobile-tagline footer-mobile-tagline-accent"
+                x="10"
+                y="92"
+              >notes at the speed of thought.</text>
+            </g>
+          </svg>
+          <p>notes at the speed of thought.</p>
         </div>
       </div>
     </footer>
