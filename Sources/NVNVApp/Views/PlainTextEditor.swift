@@ -81,6 +81,7 @@ struct PlainTextEditor: NSViewRepresentable {
         if text.string != note.body {
             coordinator.pushingState = true
             text.string = note.body
+            coordinator.detectLinks(in: text)
             text.setSelectedRange(note.clampedSelection)
             coordinator.pushingState = false
         }
@@ -121,6 +122,10 @@ struct PlainTextEditor: NSViewRepresentable {
         var lastCommandGeneration: Int
         var lastMatchRanges: [NSRange]?
         var lastHighlightedRevision = -1
+        private let supportedURLDetector = SupportedURLDetector()
+        private let linkDetector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.link.rawValue
+        )
 
         init(parent: PlainTextEditor) {
             self.parent = parent
@@ -172,6 +177,19 @@ struct PlainTextEditor: NSViewRepresentable {
 
         func textDidEndEditing(_ notification: Notification) {
             parent.onEditingEnded()
+        }
+
+        func detectLinks(in textView: NSTextView) {
+            guard let supportedURLDetector, let storage = textView.textStorage else { return }
+            let fullRange = NSRange(location: 0, length: (storage.string as NSString).length)
+            let matches = supportedURLDetector.matches(in: storage.string)
+
+            storage.beginEditing()
+            storage.removeAttribute(.link, range: fullRange)
+            for match in matches {
+                storage.addAttribute(.link, value: match.url, range: match.range)
+            }
+            storage.endEditing()
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -237,10 +255,10 @@ struct PlainTextEditor: NSViewRepresentable {
         }
 
         private func openURL(at location: Int, in textView: NSTextView) {
-            guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return }
+            guard let linkDetector else { return }
             let text = textView.string as NSString
             let safe = min(max(location, 0), max(text.length - 1, 0))
-            guard let result = detector.matches(in: textView.string, range: NSRange(location: 0, length: text.length))
+            guard let result = linkDetector.matches(in: textView.string, range: NSRange(location: 0, length: text.length))
                 .first(where: { NSLocationInRange(safe, $0.range) }), let url = result.url else { return }
             let known = ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "")
             if !known {
