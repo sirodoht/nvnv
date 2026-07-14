@@ -438,19 +438,39 @@ final class AppModel {
         }
         guard let repository else { return }
         let ids = selection
-            for id in ids {
+        for id in ids {
+            guard notes.contains(where: { $0.id == id }) else { continue }
+            guard await flushNoteBeforeDestructiveOperation(id) else { continue }
             guard let note = notes.first(where: { $0.id == id }) else { continue }
             do {
                 _ = try await repository.trash(note: note)
                 notes.removeAll { $0.id == id }
                 searchDocuments[id] = nil
                 cacheIndexedSearchVersions[id] = nil
+                baseBodies[id] = nil
+                dirtyNoteIDs.remove(id)
+                pendingLocalWriteHashes[id] = nil
+                lastJournaledRevision[id] = nil
+                journalIDs[id] = nil
                 try? cache?.remove(id: id)
             } catch { errorMessage = error.localizedDescription }
         }
         selection = []
         recomputeDuplicateTitleKeys()
         refreshSearch()
+    }
+
+    private func flushNoteBeforeDestructiveOperation(_ id: UUID) async -> Bool {
+        let scheduledSave = saveTasks.removeValue(forKey: id)
+        scheduledSave?.cancel()
+        let deadlineSave = deadlineTasks.removeValue(forKey: id)
+        deadlineSave?.cancel()
+        await scheduledSave?.value
+        await deadlineSave?.value
+        while savingNoteIDs.contains(id) { await Task.yield() }
+        if dirtyNoteIDs.contains(id), conflict?.noteID != id { await save(id) }
+        while savingNoteIDs.contains(id) { await Task.yield() }
+        return !dirtyNoteIDs.contains(id) && conflict?.noteID != id
     }
 
     func revealSelectedNote() {
