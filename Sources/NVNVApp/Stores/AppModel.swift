@@ -461,15 +461,18 @@ final class AppModel {
     }
 
     private func flushNoteBeforeDestructiveOperation(_ id: UUID) async -> Bool {
-        let scheduledSave = saveTasks.removeValue(forKey: id)
-        scheduledSave?.cancel()
         let deadlineSave = deadlineTasks.removeValue(forKey: id)
         deadlineSave?.cancel()
-        await scheduledSave?.value
         await deadlineSave?.value
-        while savingNoteIDs.contains(id) { await Task.yield() }
-        if dirtyNoteIDs.contains(id), conflict?.noteID != id { await save(id) }
-        while savingNoteIDs.contains(id) { await Task.yield() }
+        for _ in 0..<4 {
+            let scheduledSave = saveTasks.removeValue(forKey: id)
+            scheduledSave?.cancel()
+            await scheduledSave?.value
+            while savingNoteIDs.contains(id) { await Task.yield() }
+            guard dirtyNoteIDs.contains(id) else { return true }
+            guard conflict?.noteID != id else { return false }
+            await save(id)
+        }
         return !dirtyNoteIDs.contains(id) && conflict?.noteID != id
     }
 
@@ -624,9 +627,18 @@ final class AppModel {
         journalTasks.removeAll()
         journalDeadlineTasks.removeAll()
         for id in Array(dirtyNoteIDs) { await writeJournalNow(id) }
-        for task in saveTasks.values { task.cancel() }
-        saveTasks.removeAll()
-        for id in Array(dirtyNoteIDs) { await save(id) }
+        for id in Array(dirtyNoteIDs) { _ = await flushNoteBeforeDestructiveOperation(id) }
+        if let conflict,
+           let note = notes.first(where: { $0.id == conflict.noteID }) {
+            throw NVNVError.fileChanged(note.filename)
+        }
+        if !dirtyNoteIDs.isEmpty {
+            let filenames = notes.filter { dirtyNoteIDs.contains($0.id) }.map(\.filename).joined(separator: ", ")
+            throw NVNVError.fileOperation(
+                path: filenames.isEmpty ? "unsaved notes" : filenames,
+                reason: "one or more pending changes could not be saved"
+            )
+        }
         if let settingsRepository { try await settingsRepository.save(settingsSnapshot()) }
     }
 
