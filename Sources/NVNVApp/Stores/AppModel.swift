@@ -1090,7 +1090,8 @@ final class AppModel {
                 }
                 scheduleCacheUpsert(notes[current])
             case .conflict(let data, let hash):
-                conflict = makeConflict(note: snapshot, data: data, hash: hash)
+                guard let current = notes.first(where: { $0.id == id }) else { return }
+                conflict = makeConflict(note: current, data: data, hash: hash)
             }
         } catch { errorMessage = error.localizedDescription }
     }
@@ -1304,14 +1305,15 @@ final class AppModel {
             var removedIDs: Set<UUID> = []
             for old in cachedNotes where affectedFilenames.contains(old.filename)
                 && !handledOldIDs.contains(old.id) {
-                if dirtyNoteIDs.contains(old.id) {
+                let app = currentByID[old.id] ?? old
+                if dirtyNoteIDs.contains(app.id) {
                     conflict = Conflict(
-                        noteID: old.id, baseBody: baseBodies[old.id] ?? "", appBody: old.body,
+                        noteID: app.id, baseBody: baseBodies[app.id] ?? "", appBody: app.body,
                         fileBody: "", fileHash: ""
                     )
-                    upsertsByID[old.id] = old
+                    upsertsByID[app.id] = app
                 } else {
-                    removedIDs.insert(old.id)
+                    removedIDs.insert(app.id)
                 }
             }
 
