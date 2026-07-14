@@ -488,7 +488,7 @@ final class AppModel {
         }
     }
 
-    func resolveConflictUseFile() {
+    func resolveConflictUseFile() async {
         guard let conflict, let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
         notes[index].body = conflict.fileBody
         notes[index].lastSavedHash = conflict.fileHash
@@ -496,10 +496,9 @@ final class AppModel {
         searchDocuments[conflict.noteID] = SearchDocument(note: notes[index])
         staleSearchDocumentIDs.remove(conflict.noteID)
         baseBodies[conflict.noteID] = conflict.fileBody
-        dirtyNoteIDs.remove(conflict.noteID)
-        self.conflict = nil
         scheduleCacheUpsert(notes[index])
         refreshSearch()
+        await completeConflictResolution(noteID: conflict.noteID)
     }
 
     func resolveConflictKeepApp() async {
@@ -517,9 +516,8 @@ final class AppModel {
                 searchDocuments[conflict.noteID] = SearchDocument(note: notes[index])
                 staleSearchDocumentIDs.remove(conflict.noteID)
                 baseBodies[conflict.noteID] = notes[index].body
-                dirtyNoteIDs.remove(conflict.noteID)
-                self.conflict = nil
                 scheduleCacheUpsert(notes[index])
+                await completeConflictResolution(noteID: conflict.noteID)
             case .conflict(let data, let hash):
                 self.conflict = makeConflict(note: notes[index], data: data, hash: hash)
             }
@@ -559,13 +557,34 @@ final class AppModel {
             staleSearchDocumentIDs.remove(copy.id)
             recomputeDuplicateTitleKeys()
             baseBodies[copy.id] = copy.body
-            dirtyNoteIDs.remove(appVersion.id)
-            self.conflict = nil
             scheduleCacheUpsert(notes[index])
             scheduleCacheUpsert(copy)
             select([copy.id], explicitly: true)
             refreshSearch()
+            await completeConflictResolution(noteID: appVersion.id)
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func completeConflictResolution(noteID: UUID) async {
+        saveTasks[noteID]?.cancel()
+        saveTasks[noteID] = nil
+        deadlineTasks[noteID]?.cancel()
+        deadlineTasks[noteID] = nil
+        journalTasks[noteID]?.cancel()
+        journalTasks[noteID] = nil
+        journalDeadlineTasks[noteID]?.cancel()
+        journalDeadlineTasks[noteID] = nil
+
+        await journalOperations[noteID]?.value
+        if let journalID = journalIDs[noteID] {
+            do { try await journal?.remove(journalID) }
+            catch { errorMessage = error.localizedDescription }
+        }
+        journalIDs[noteID] = nil
+        journalOperations[noteID] = nil
+        journalOperationIDs[noteID] = nil
+        dirtyNoteIDs.remove(noteID)
+        if conflict?.noteID == noteID { conflict = nil }
     }
 
     func flushAll() async throws {

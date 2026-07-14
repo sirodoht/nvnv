@@ -150,7 +150,7 @@ private struct ConflictView: View {
                     Button("Resolve Later") { model.deferConflict() }
                     Button("Open File Externally") { model.openConflictFileExternally() }
                     Spacer()
-                    Button("Use File") { model.resolveConflictUseFile() }
+                    Button("Use File") { Task { await model.resolveConflictUseFile() } }
                     Button("Keep Both") { Task { await model.resolveConflictKeepBoth() } }
                     Button("Merge…") { showMerge = true }
                     Button("Keep App") { Task { await model.resolveConflictKeepApp() } }
