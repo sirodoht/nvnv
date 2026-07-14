@@ -83,6 +83,8 @@ final class AppModel {
     private var baseBodies: [UUID: String] = [:]
     private var dirtyNoteIDs: Set<UUID> = []
     private var pendingLocalWriteHashes: [UUID: Set<String>] = [:]
+    private var queuedConflicts: [UUID: Conflict] = [:]
+    private var queuedConflictOrder: [UUID] = []
     private var renameOriginalQuery = ""
     private var priorExplicitQuery: String?
     private var settingsTask: Task<Void, Never>?
@@ -192,6 +194,8 @@ final class AppModel {
         navigationHistory = []
         priorExplicitQuery = nil
         scanIssues = []
+        queuedConflicts = [:]
+        queuedConflictOrder = []
         conflict = nil
         isConflictPresented = false
         isReadOnly = false
@@ -278,6 +282,9 @@ final class AppModel {
             self.staleSearchDocumentIDs.removeAll()
             recomputeDuplicateTitleKeys()
             self.baseBodies = Dictionary(uniqueKeysWithValues: scan.notes.map { ($0.id, $0.body) })
+            self.queuedConflicts = [:]
+            self.queuedConflictOrder = []
+            self.conflict = nil
             self.scanIssues = scan.issues
             selection = []
             selectionKind = .none
@@ -559,7 +566,7 @@ final class AppModel {
                 scheduleCacheUpsert(notes[index])
                 await completeConflictResolution(noteID: conflict.noteID)
             case .conflict(let data, let hash):
-                self.conflict = makeConflict(note: notes[index], data: data, hash: hash)
+                presentConflict(makeConflict(note: notes[index], data: data, hash: hash))
             }
         } catch { errorMessage = error.localizedDescription }
     }
@@ -642,7 +649,7 @@ final class AppModel {
         journalOperations[noteID] = nil
         journalOperationIDs[noteID] = nil
         dirtyNoteIDs.remove(noteID)
-        if conflict?.noteID == noteID { conflict = nil }
+        if conflict?.noteID == noteID { conflict = takeNextQueuedConflict() }
     }
 
     func flushAll() async throws {
@@ -1116,7 +1123,7 @@ final class AppModel {
                 scheduleCacheUpsert(notes[current])
             case .conflict(let data, let hash):
                 guard let current = notes.first(where: { $0.id == id }) else { return }
-                conflict = makeConflict(note: current, data: data, hash: hash)
+                presentConflict(makeConflict(note: current, data: data, hash: hash))
             }
         } catch { errorMessage = error.localizedDescription }
     }
@@ -1128,6 +1135,29 @@ final class AppModel {
             noteID: note.id, baseBody: baseBodies[note.id] ?? "",
             appBody: note.body, fileBody: fileBody, fileHash: hash
         )
+    }
+
+    func presentConflict(_ newConflict: Conflict) {
+        guard let active = conflict else {
+            conflict = newConflict
+            return
+        }
+        if active.noteID == newConflict.noteID {
+            conflict = newConflict
+            return
+        }
+        if queuedConflicts[newConflict.noteID] == nil {
+            queuedConflictOrder.append(newConflict.noteID)
+        }
+        queuedConflicts[newConflict.noteID] = newConflict
+    }
+
+    private func takeNextQueuedConflict() -> Conflict? {
+        while !queuedConflictOrder.isEmpty {
+            let noteID = queuedConflictOrder.removeFirst()
+            if let next = queuedConflicts.removeValue(forKey: noteID) { return next }
+        }
+        return nil
     }
 
     private func applyWriteMetadata(_ metadata: FileWriteMetadata, to note: inout Note) {
@@ -1219,10 +1249,10 @@ final class AppModel {
                     reconciled.append(acknowledgingSavedFile(disk, whilePreserving: app))
                     baseBodies[app.id] = disk.body
                 case .conflict:
-                    conflict = Conflict(
+                    presentConflict(Conflict(
                         noteID: app.id, baseBody: baseBodies[app.id] ?? "",
                         appBody: app.body, fileBody: disk.body, fileHash: disk.lastSavedHash
-                    )
+                    ))
                     reconciled.append(app)
                 case .external:
                     reconciled.append(disk)
@@ -1234,7 +1264,7 @@ final class AppModel {
             for app in notes where !scannedFilenames.contains(app.filename)
                 && !handledNoteIDs.contains(app.id) {
                 if dirtyNoteIDs.contains(app.id) {
-                    conflict = Conflict(noteID: app.id, baseBody: baseBodies[app.id] ?? "", appBody: app.body, fileBody: "", fileHash: "")
+                    presentConflict(Conflict(noteID: app.id, baseBody: baseBodies[app.id] ?? "", appBody: app.body, fileBody: "", fileHash: ""))
                     reconciled.append(app)
                 }
             }
@@ -1315,10 +1345,10 @@ final class AppModel {
                     upsertsByID[app.id] = acknowledgingSavedFile(disk, whilePreserving: app)
                     baseBodies[app.id] = disk.body
                 case .conflict:
-                    conflict = Conflict(
+                    presentConflict(Conflict(
                         noteID: app.id, baseBody: baseBodies[app.id] ?? "", appBody: app.body,
                         fileBody: disk.body, fileHash: disk.lastSavedHash
-                    )
+                    ))
                     upsertsByID[app.id] = app
                 case .external:
                     upsertsByID[app.id] = disk
@@ -1332,10 +1362,10 @@ final class AppModel {
                 && !handledOldIDs.contains(old.id) {
                 let app = currentByID[old.id] ?? old
                 if dirtyNoteIDs.contains(app.id) {
-                    conflict = Conflict(
+                    presentConflict(Conflict(
                         noteID: app.id, baseBody: baseBodies[app.id] ?? "", appBody: app.body,
                         fileBody: "", fileHash: ""
-                    )
+                    ))
                     upsertsByID[app.id] = app
                 } else {
                     removedIDs.insert(app.id)
@@ -1380,11 +1410,11 @@ final class AppModel {
                             try await journal.remove(entry.id)
                             transientMessage = "Recovered “\(notes[index].title)” after an interrupted save."
                         case .conflict(let data, let hash):
-                            conflict = makeConflict(note: notes[index], data: data, hash: hash)
+                            presentConflict(makeConflict(note: notes[index], data: data, hash: hash))
                         }
                     } else {
                         notes[index].body = entry.body
-                        conflict = makeConflict(note: notes[index], data: try await repository.data(for: entry.filename), hash: notes[index].lastSavedHash)
+                        presentConflict(makeConflict(note: notes[index], data: try await repository.data(for: entry.filename), hash: notes[index].lastSavedHash))
                     }
                 }
             }
