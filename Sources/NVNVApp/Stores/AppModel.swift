@@ -73,6 +73,7 @@ final class AppModel {
     private var cacheIndexedSearchVersions: [UUID: SearchIndexVersion] = [:]
     private var saveTasks: [UUID: Task<Void, Never>] = [:]
     private var deadlineTasks: [UUID: Task<Void, Never>] = [:]
+    private var savingNoteIDs: Set<UUID> = []
     private var journalTasks: [UUID: Task<Void, Never>] = [:]
     private var journalDeadlineTasks: [UUID: Task<Void, Never>] = [:]
     private var journalOperations: [UUID: Task<Void, Never>] = [:]
@@ -182,6 +183,7 @@ final class AppModel {
         baseBodies = [:]
         dirtyNoteIDs = []
         pendingLocalWriteHashes = [:]
+        savingNoteIDs = []
         lastJournaledRevision = [:]
         journalIDs = [:]
         journalOperations = [:]
@@ -989,7 +991,9 @@ final class AppModel {
     }
 
     private func save(_ id: UUID) async {
-        guard dirtyNoteIDs.contains(id), let repository else { return }
+        guard dirtyNoteIDs.contains(id), !savingNoteIDs.contains(id), let repository else { return }
+        savingNoteIDs.insert(id)
+        defer { savingNoteIDs.remove(id) }
         await writeJournalNow(id)
         guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
         let snapshot = notes[index]
