@@ -495,7 +495,8 @@ final class AppModel {
     }
 
     func openConflictFileExternally() {
-        guard let libraryURL, let note = selectedNote else { return }
+        guard let libraryURL, let conflict,
+              let note = notes.first(where: { $0.id == conflict.noteID }) else { return }
         NSWorkspace.shared.open(libraryURL.appendingPathComponent(note.filename))
     }
 
