@@ -502,12 +502,14 @@ final class AppModel {
     }
 
     func resolveConflictKeepApp() async {
-        guard let conflict, let index = notes.firstIndex(where: { $0.id == conflict.noteID }), let repository else { return }
-        let intendedHash = Hashing.sha256(text: notes[index].body, lineEnding: notes[index].lineEnding)
+        guard let conflict, let note = notes.first(where: { $0.id == conflict.noteID }), let repository else { return }
+        let intendedHash = Hashing.sha256(text: note.body, lineEnding: note.lineEnding)
         pendingLocalWriteHashes[conflict.noteID, default: []].insert(intendedHash)
         defer { pendingLocalWriteHashes[conflict.noteID]?.remove(intendedHash) }
         do {
-            let result = try await repository.forceSave(note: notes[index], expectedHash: conflict.fileHash)
+            let result = try await repository.forceSave(note: note, expectedHash: conflict.fileHash)
+            guard self.conflict?.id == conflict.id,
+                  let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
             switch result {
             case .saved(let hash, let date, let identity):
                 notes[index].lastSavedHash = hash
@@ -533,8 +535,7 @@ final class AppModel {
 
     func resolveConflictKeepBoth() async {
         guard let conflict, let libraryURL, let repository,
-              let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
-        let appVersion = notes[index]
+              let appVersion = notes.first(where: { $0.id == conflict.noteID }) else { return }
         do {
             let ext = URL(fileURLWithPath: appVersion.filename).pathExtension
             let stem = try FilenamePolicy.sanitizedStem("\(appVersion.title) App")
@@ -546,6 +547,15 @@ final class AppModel {
                 revision: appVersion.revision + 1, filename: filename,
                 lastSavedHash: hash, lineEnding: appVersion.lineEnding, fileIdentity: identity
             )
+            guard self.conflict?.id == conflict.id,
+                  let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else {
+                notes.append(copy)
+                searchDocuments[copy.id] = SearchDocument(note: copy)
+                baseBodies[copy.id] = copy.body
+                scheduleCacheUpsert(copy)
+                refreshSearch()
+                return
+            }
             notes[index].body = conflict.fileBody
             notes[index].lastSavedHash = conflict.fileHash
             notes[index].revision += 1
