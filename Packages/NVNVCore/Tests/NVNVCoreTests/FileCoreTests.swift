@@ -48,6 +48,27 @@ struct FileCoreTests {
         }
     }
 
+    @Test func repositoryCanRecreateADeletedNoteAfterResolution() async throws {
+        try await withTemporaryDirectory { root in
+            let repository = FileRepository(libraryURL: root)
+            guard case .saved(let metadata) = try await repository.create(filename: "A.txt", body: "old") else {
+                Issue.record("create unexpectedly conflicted"); return
+            }
+            try FileManager.default.removeItem(at: root.appendingPathComponent("A.txt"))
+            let note = Note(
+                title: "A", body: "recreated", filename: "A.txt",
+                lastSavedHash: metadata.hash
+            )
+
+            guard case .saved = try await repository.create(
+                filename: note.filename, body: note.body, lineEnding: note.lineEnding
+            ) else {
+                Issue.record("recreate unexpectedly conflicted"); return
+            }
+            #expect(try String(contentsOf: root.appendingPathComponent("A.txt"), encoding: .utf8) == "recreated")
+        }
+    }
+
     @Test func cacheCanBeDeletedAndRebuiltWithoutTouchingNotes() throws {
         try withTemporaryDirectory { root in
             let file = root.appendingPathComponent("Truth.txt")

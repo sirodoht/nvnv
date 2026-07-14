@@ -514,6 +514,18 @@ final class AppModel {
 
     func resolveConflictUseFile() async {
         guard let conflict, let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
+        if conflict.fileHash.isEmpty {
+            notes.remove(at: index)
+            searchDocuments[conflict.noteID] = nil
+            staleSearchDocumentIDs.remove(conflict.noteID)
+            baseBodies[conflict.noteID] = nil
+            cacheIndexedSearchVersions[conflict.noteID] = nil
+            try? cache?.remove(id: conflict.noteID)
+            selection.remove(conflict.noteID)
+            refreshSearch()
+            await completeConflictResolution(noteID: conflict.noteID)
+            return
+        }
         notes[index].body = conflict.fileBody
         notes[index].lastSavedHash = conflict.fileHash
         notes[index].revision += 1
@@ -531,7 +543,11 @@ final class AppModel {
         pendingLocalWriteHashes[conflict.noteID, default: []].insert(intendedHash)
         defer { pendingLocalWriteHashes[conflict.noteID]?.remove(intendedHash) }
         do {
-            let result = try await repository.forceSave(note: note, expectedHash: conflict.fileHash)
+            let result = conflict.fileHash.isEmpty
+                ? try await repository.create(
+                    filename: note.filename, body: note.body, lineEnding: note.lineEnding
+                )
+                : try await repository.forceSave(note: note, expectedHash: conflict.fileHash)
             guard self.conflict?.id == conflict.id,
                   let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
             switch result {
@@ -579,18 +595,27 @@ final class AppModel {
                 refreshSearch()
                 return
             }
-            notes[index].body = conflict.fileBody
-            notes[index].lastSavedHash = conflict.fileHash
-            notes[index].revision += 1
-            searchDocuments[notes[index].id] = SearchDocument(note: notes[index])
-            staleSearchDocumentIDs.remove(notes[index].id)
-            baseBodies[notes[index].id] = conflict.fileBody
+            if conflict.fileHash.isEmpty {
+                notes.remove(at: index)
+                searchDocuments[appVersion.id] = nil
+                staleSearchDocumentIDs.remove(appVersion.id)
+                baseBodies[appVersion.id] = nil
+                cacheIndexedSearchVersions[appVersion.id] = nil
+                try? cache?.remove(id: appVersion.id)
+            } else {
+                notes[index].body = conflict.fileBody
+                notes[index].lastSavedHash = conflict.fileHash
+                notes[index].revision += 1
+                searchDocuments[notes[index].id] = SearchDocument(note: notes[index])
+                staleSearchDocumentIDs.remove(notes[index].id)
+                baseBodies[notes[index].id] = conflict.fileBody
+                scheduleCacheUpsert(notes[index])
+            }
             notes.append(copy)
             searchDocuments[copy.id] = SearchDocument(note: copy)
             staleSearchDocumentIDs.remove(copy.id)
             recomputeDuplicateTitleKeys()
             baseBodies[copy.id] = copy.body
-            scheduleCacheUpsert(notes[index])
             scheduleCacheUpsert(copy)
             select([copy.id], explicitly: true)
             refreshSearch()
