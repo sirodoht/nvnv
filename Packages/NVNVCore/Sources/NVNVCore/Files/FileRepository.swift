@@ -146,10 +146,7 @@ public actor FileRepository {
             Failpoint.trigger("after-destination-comparison")
 
             if FileManager.default.fileExists(atPath: destination.path) {
-                var metadata = stat()
-                if stat(destination.path, &metadata) == 0 {
-                    _ = chmod(temporary.path, metadata.st_mode & 0o7777)
-                }
+                try preserveMetadata(from: destination, to: temporary)
             }
 
             guard Darwin.rename(temporary.path, destination.path) == 0 else {
@@ -173,6 +170,32 @@ public actor FileRepository {
         guard fd >= 0 else { throw NVNVError.fileOperation(path: libraryURL.path, reason: String(cString: strerror(errno))) }
         defer { close(fd) }
         guard fsync(fd) == 0 else { throw NVNVError.fileOperation(path: libraryURL.path, reason: String(cString: strerror(errno))) }
+    }
+
+    private func preserveMetadata(from source: URL, to destination: URL) throws {
+        let sourceValues = try source.resourceValues(forKeys: [.creationDateKey])
+        let flags = copyfile_flags_t(COPYFILE_METADATA | COPYFILE_NOFOLLOW)
+        guard copyfile(source.path, destination.path, nil, flags) == 0 else {
+            throw NVNVError.fileOperation(
+                path: source.lastPathComponent,
+                reason: "could not preserve file metadata: \(String(cString: strerror(errno)))"
+            )
+        }
+
+        var values = URLResourceValues()
+        values.creationDate = sourceValues.creationDate
+        values.contentModificationDate = .now
+        var mutableDestination = destination
+        try mutableDestination.setResourceValues(values)
+
+        let descriptor = open(destination.path, O_RDONLY)
+        guard descriptor >= 0 else {
+            throw NVNVError.fileOperation(path: source.lastPathComponent, reason: String(cString: strerror(errno)))
+        }
+        defer { close(descriptor) }
+        guard fsync(descriptor) == 0 else {
+            throw NVNVError.fileOperation(path: source.lastPathComponent, reason: String(cString: strerror(errno)))
+        }
     }
 
     private func writeMetadata(for url: URL, hash: String) throws -> FileWriteMetadata {

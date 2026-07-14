@@ -48,6 +48,52 @@ struct FileCoreTests {
         }
     }
 
+    @Test func atomicWriterPreservesDestinationMetadata() async throws {
+        try await withTemporaryDirectory { root in
+            let repository = FileRepository(libraryURL: root)
+            guard case .saved(let metadata) = try await repository.create(filename: "A.txt", body: "old") else {
+                Issue.record("create unexpectedly conflicted"); return
+            }
+            let file = root.appendingPathComponent("A.txt")
+            let originalCreationDate = Date(timeIntervalSince1970: 946_684_800)
+            var values = URLResourceValues()
+            values.creationDate = originalCreationDate
+            var mutableFile = file
+            try mutableFile.setResourceValues(values)
+            #expect(chmod(file.path, 0o640) == 0)
+
+            let attributeName = "com.nvnv.tests.marker"
+            let attributeValue = Data("preserved".utf8)
+            let setResult = attributeValue.withUnsafeBytes { bytes in
+                setxattr(file.path, attributeName, bytes.baseAddress, bytes.count, 0, 0)
+            }
+            #expect(setResult == 0)
+
+            let note = Note(
+                title: "A", body: "new", filename: "A.txt",
+                lastSavedHash: metadata.hash
+            )
+            guard case .saved = try await repository.save(note: note) else {
+                Issue.record("save unexpectedly conflicted"); return
+            }
+
+            let resultingCreationDate = try file.resourceValues(forKeys: [.creationDateKey]).creationDate
+            #expect(abs(try #require(resultingCreationDate).timeIntervalSince(originalCreationDate)) < 0.001)
+            var info = stat()
+            #expect(stat(file.path, &info) == 0)
+            #expect(info.st_mode & 0o777 == 0o640)
+            let attributeSize = getxattr(file.path, attributeName, nil, 0, 0, 0)
+            #expect(attributeSize == attributeValue.count)
+            var restoredAttribute = Data(count: max(attributeSize, 0))
+            let readSize = restoredAttribute.withUnsafeMutableBytes { bytes in
+                getxattr(file.path, attributeName, bytes.baseAddress, bytes.count, 0, 0)
+            }
+            #expect(readSize == attributeValue.count)
+            #expect(restoredAttribute == attributeValue)
+            #expect(try String(contentsOf: file, encoding: .utf8) == "new")
+        }
+    }
+
     @Test func repositoryCanRecreateADeletedNoteAfterResolution() async throws {
         try await withTemporaryDirectory { root in
             let repository = FileRepository(libraryURL: root)
