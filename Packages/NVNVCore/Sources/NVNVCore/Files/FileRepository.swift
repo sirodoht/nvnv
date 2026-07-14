@@ -2,8 +2,19 @@ import Darwin
 import Foundation
 
 public enum FileWriteResult: Sendable {
-    case saved(hash: String, modifiedAt: Date, identity: String?)
+    case saved(FileWriteMetadata)
     case conflict(currentData: Data, currentHash: String)
+}
+
+public struct FileWriteMetadata: Sendable {
+    public let hash: String
+    public let modifiedAt: Date
+    public let identity: String?
+    public let fileSize: Int64?
+    public let modificationSeconds: Int64?
+    public let modificationNanoseconds: Int64?
+    public let statusChangeSeconds: Int64?
+    public let statusChangeNanoseconds: Int64?
 }
 
 public actor FileRepository {
@@ -41,11 +52,7 @@ public actor FileRepository {
             close(descriptor)
             isOpen = false
             try syncDirectory()
-            let values = try destination.resourceValues(forKeys: [.contentModificationDateKey])
-            return .saved(
-                hash: Hashing.sha256(bytes), modifiedAt: values.contentModificationDate ?? .now,
-                identity: fileIdentity(destination)
-            )
+            return .saved(try writeMetadata(for: destination, hash: Hashing.sha256(bytes)))
         } catch {
             if isOpen { close(descriptor); isOpen = false }
             try? FileManager.default.removeItem(at: destination)
@@ -153,11 +160,7 @@ public actor FileRepository {
             Failpoint.trigger("after-directory-durability")
             let verified = try Data(contentsOf: destination)
             guard verified == bytes else { throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: "verification failed") }
-            let values = try destination.resourceValues(forKeys: [.contentModificationDateKey])
-            return .saved(
-                hash: Hashing.sha256(verified), modifiedAt: values.contentModificationDate ?? .now,
-                identity: fileIdentity(destination)
-            )
+            return .saved(try writeMetadata(for: destination, hash: Hashing.sha256(verified)))
         } catch {
             close(fd)
             try? FileManager.default.removeItem(at: temporary)
@@ -172,9 +175,23 @@ public actor FileRepository {
         guard fsync(fd) == 0 else { throw NVNVError.fileOperation(path: libraryURL.path, reason: String(cString: strerror(errno))) }
     }
 
-    private func fileIdentity(_ url: URL) -> String? {
+    private func writeMetadata(for url: URL, hash: String) throws -> FileWriteMetadata {
         var info = stat()
-        guard lstat(url.path, &info) == 0 else { return nil }
-        return "\(info.st_dev):\(info.st_ino)"
+        guard lstat(url.path, &info) == 0 else {
+            throw NVNVError.fileOperation(path: url.lastPathComponent, reason: String(cString: strerror(errno)))
+        }
+        return FileWriteMetadata(
+            hash: hash,
+            modifiedAt: Date(
+                timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec)
+                    + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000
+            ),
+            identity: "\(info.st_dev):\(info.st_ino)",
+            fileSize: Int64(info.st_size),
+            modificationSeconds: Int64(info.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(info.st_mtimespec.tv_nsec),
+            statusChangeSeconds: Int64(info.st_ctimespec.tv_sec),
+            statusChangeNanoseconds: Int64(info.st_ctimespec.tv_nsec)
+        )
     }
 }

@@ -19,8 +19,8 @@ struct NVNVProbes {
 
         let repository = FileRepository(libraryURL: root)
         let created = try await repository.create(filename: "Probe.txt", body: "alpha")
-        guard case .saved(let hash, _, _) = created else { fatalError("create probe conflicted") }
-        let note = Note(title: "Probe", body: "beta", filename: "Probe.txt", lastSavedHash: hash)
+        guard case .saved(let metadata) = created else { fatalError("create probe conflicted") }
+        let note = Note(title: "Probe", body: "beta", filename: "Probe.txt", lastSavedHash: metadata.hash)
         guard case .saved = try await repository.save(note: note) else { fatalError("replace probe conflicted") }
 
         guard SQLiteCache.runtimeSupportsFTS5Trigram() else { fatalError("SQLite FTS5 trigram unavailable") }

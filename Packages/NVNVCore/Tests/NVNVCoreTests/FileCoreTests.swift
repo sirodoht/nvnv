@@ -31,11 +31,15 @@ struct FileCoreTests {
     @Test func atomicWriterDetectsExternalChange() async throws {
         try await withTemporaryDirectory { root in
             let repository = FileRepository(libraryURL: root)
-            guard case .saved(let hash, _, _) = try await repository.create(filename: "A.txt", body: "one") else {
+            guard case .saved(let metadata) = try await repository.create(filename: "A.txt", body: "one") else {
                 Issue.record("create unexpectedly conflicted"); return
             }
+            #expect(metadata.fileSize == 3)
+            #expect(metadata.identity != nil)
+            #expect(metadata.modificationSeconds != nil)
+            #expect(metadata.statusChangeSeconds != nil)
             try Data("external".utf8).write(to: root.appendingPathComponent("A.txt"))
-            let note = Note(title: "A", body: "app", filename: "A.txt", lastSavedHash: hash)
+            let note = Note(title: "A", body: "app", filename: "A.txt", lastSavedHash: metadata.hash)
             guard case .conflict(let data, _) = try await repository.save(note: note) else {
                 Issue.record("external change was overwritten"); return
             }

@@ -534,10 +534,8 @@ final class AppModel {
             guard self.conflict?.id == conflict.id,
                   let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
             switch result {
-            case .saved(let hash, let date, let identity):
-                notes[index].lastSavedHash = hash
-                notes[index].modifiedAt = date
-                notes[index].fileIdentity = identity
+            case .saved(let metadata):
+                applyWriteMetadata(metadata, to: &notes[index])
                 searchDocuments[conflict.noteID] = SearchDocument(note: notes[index])
                 staleSearchDocumentIDs.remove(conflict.noteID)
                 baseBodies[conflict.noteID] = notes[index].body
@@ -563,13 +561,14 @@ final class AppModel {
             let ext = URL(fileURLWithPath: appVersion.filename).pathExtension
             let stem = try FilenamePolicy.sanitizedStem("\(appVersion.title) App")
             let filename = FilenamePolicy.availableFilename(stem: stem, extension: ext, in: libraryURL)
-            guard case .saved(let hash, let date, let identity) = try await repository.create(filename: filename, body: conflict.appBody, lineEnding: appVersion.lineEnding) else { return }
-            let copy = Note(
+            guard case .saved(let metadata) = try await repository.create(filename: filename, body: conflict.appBody, lineEnding: appVersion.lineEnding) else { return }
+            var copy = Note(
                 title: URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent,
-                body: conflict.appBody, createdAt: date, modifiedAt: date,
+                body: conflict.appBody, createdAt: metadata.modifiedAt, modifiedAt: metadata.modifiedAt,
                 revision: appVersion.revision + 1, filename: filename,
-                lastSavedHash: hash, lineEnding: appVersion.lineEnding, fileIdentity: identity
+                lastSavedHash: metadata.hash, lineEnding: appVersion.lineEnding, fileIdentity: metadata.identity
             )
+            applyWriteMetadata(metadata, to: &copy)
             guard self.conflict?.id == conflict.id,
                   let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else {
                 notes.append(copy)
@@ -649,8 +648,13 @@ final class AppModel {
             let filename = FilenamePolicy.availableFilename(stem: stem, extension: defaultExtension, in: libraryURL)
             guard confirmMaterialTitleChange(input: title, final: URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent) else { return }
             let result = try await repository.create(filename: filename, body: "")
-            guard case .saved(let hash, let date, let identity) = result else { return }
-            let note = Note(title: URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent, body: "", createdAt: date, modifiedAt: date, filename: filename, lastSavedHash: hash, fileIdentity: identity)
+            guard case .saved(let metadata) = result else { return }
+            var note = Note(
+                title: URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent,
+                body: "", createdAt: metadata.modifiedAt, modifiedAt: metadata.modifiedAt,
+                filename: filename, lastSavedHash: metadata.hash, fileIdentity: metadata.identity
+            )
+            applyWriteMetadata(metadata, to: &note)
             notes.append(note)
             searchDocuments[note.id] = SearchDocument(note: note)
             staleSearchDocumentIDs.remove(note.id)
@@ -1063,7 +1067,7 @@ final class AppModel {
         defer { pendingLocalWriteHashes[id]?.remove(intendedHash) }
         do {
             switch try await repository.save(note: snapshot) {
-            case .saved(let hash, let date, let identity):
+            case .saved(let metadata):
                 guard let current = notes.firstIndex(where: { $0.id == id }) else { return }
                 if notes[current].revision == snapshot.revision {
                     dirtyNoteIDs.remove(id)
@@ -1071,12 +1075,10 @@ final class AppModel {
                     deadlineTasks[id]?.cancel()
                     deadlineTasks[id] = nil
                 } else {
-                    notes[current].lastSavedHash = hash
+                    notes[current].lastSavedHash = metadata.hash
                     scheduleSave(for: id)
                 }
-                notes[current].lastSavedHash = hash
-                notes[current].modifiedAt = date
-                notes[current].fileIdentity = identity
+                applyWriteMetadata(metadata, to: &notes[current])
                 if let document = searchDocuments[id] {
                     searchDocuments[id] = document.replacingMetadata(with: notes[current])
                 }
@@ -1099,6 +1101,17 @@ final class AppModel {
             noteID: note.id, baseBody: baseBodies[note.id] ?? "",
             appBody: note.body, fileBody: fileBody, fileHash: hash
         )
+    }
+
+    private func applyWriteMetadata(_ metadata: FileWriteMetadata, to note: inout Note) {
+        note.lastSavedHash = metadata.hash
+        note.modifiedAt = metadata.modifiedAt
+        note.fileIdentity = metadata.identity
+        note.fileSize = metadata.fileSize
+        note.fileModificationSeconds = metadata.modificationSeconds
+        note.fileModificationNanoseconds = metadata.modificationNanoseconds
+        note.fileStatusChangeSeconds = metadata.statusChangeSeconds
+        note.fileStatusChangeNanoseconds = metadata.statusChangeNanoseconds
     }
 
     private func acknowledgingSavedFile(_ disk: Note, whilePreserving app: Note) -> Note {
@@ -1333,10 +1346,8 @@ final class AppModel {
                         notes[index].body = entry.body
                         notes[index].revision = max(notes[index].revision, entry.revision)
                         switch try await repository.save(note: notes[index]) {
-                        case .saved(let hash, let date, let identity):
-                            notes[index].lastSavedHash = hash
-                            notes[index].modifiedAt = date
-                            notes[index].fileIdentity = identity
+                        case .saved(let metadata):
+                            applyWriteMetadata(metadata, to: &notes[index])
                             baseBodies[notes[index].id] = notes[index].body
                             try await journal.remove(entry.id)
                             transientMessage = "Recovered “\(notes[index].title)” after an interrupted save."
