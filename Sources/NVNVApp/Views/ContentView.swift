@@ -30,7 +30,9 @@ struct ContentView: View {
             Text(model.errorMessage ?? "")
         }
         .sheet(isPresented: $model.isConflictPresented) {
-            if let conflict = model.conflict { ConflictView(model: model, conflict: conflict) }
+            if let conflict = model.conflict {
+                ConflictView(model: model, conflict: conflict).id(conflict.id)
+            }
         }
     }
 
@@ -150,10 +152,10 @@ private struct ConflictView: View {
                     Button("Resolve Later") { model.deferConflict() }
                     Button("Open File Externally") { model.openConflictFileExternally() }
                     Spacer()
-                    Button("Use File") { Task { await model.resolveConflictUseFile() } }
-                    Button("Keep Both") { Task { await model.resolveConflictKeepBoth() } }
+                    Button("Use File") { Task { await model.resolveConflictUseFile(expectedConflictID: conflict.id) } }
+                    Button("Keep Both") { Task { await model.resolveConflictKeepBoth(expectedConflictID: conflict.id) } }
                     Button("Merge…") { showMerge = true }
-                    Button("Keep App") { Task { await model.resolveConflictKeepApp() } }
+                    Button("Keep App") { Task { await model.resolveConflictKeepApp(expectedConflictID: conflict.id) } }
                         .buttonStyle(.borderedProminent)
                 }
             }
@@ -190,7 +192,13 @@ private struct MergeConflictView: View {
             Text("Merge Versions").font(.title2.weight(.semibold))
             Text("Edit the final plain-text body. The file is checked again before it is replaced.").foregroundStyle(.secondary)
             TextEditor(text: $merged).font(.body.monospaced()).border(.separator)
-            HStack { Spacer(); Button("Commit Merge") { Task { await model.resolveConflictMerge(body: merged) } }.buttonStyle(.borderedProminent) }
+            HStack {
+                Spacer()
+                Button("Commit Merge") {
+                    Task { await model.resolveConflictMerge(body: merged, expectedConflictID: conflict.id) }
+                }
+                .buttonStyle(.borderedProminent)
+            }
         }.padding(18).frame(minWidth: 680, minHeight: 440)
     }
 }

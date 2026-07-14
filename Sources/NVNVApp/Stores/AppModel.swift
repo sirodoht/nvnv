@@ -519,8 +519,10 @@ final class AppModel {
         }
     }
 
-    func resolveConflictUseFile() async {
-        guard let conflict, let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
+    func resolveConflictUseFile(expectedConflictID: UUID? = nil) async {
+        guard let conflict,
+              expectedConflictID == nil || expectedConflictID == conflict.id,
+              let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
         if conflict.fileHash.isEmpty {
             notes.remove(at: index)
             searchDocuments[conflict.noteID] = nil
@@ -530,7 +532,7 @@ final class AppModel {
             try? cache?.remove(id: conflict.noteID)
             selection.remove(conflict.noteID)
             refreshSearch()
-            await completeConflictResolution(noteID: conflict.noteID)
+            await completeConflictResolution(conflictID: conflict.id, noteID: conflict.noteID)
             return
         }
         notes[index].body = conflict.fileBody
@@ -541,11 +543,13 @@ final class AppModel {
         baseBodies[conflict.noteID] = conflict.fileBody
         scheduleCacheUpsert(notes[index])
         refreshSearch()
-        await completeConflictResolution(noteID: conflict.noteID)
+        await completeConflictResolution(conflictID: conflict.id, noteID: conflict.noteID)
     }
 
-    func resolveConflictKeepApp() async {
-        guard let conflict, let note = notes.first(where: { $0.id == conflict.noteID }), let repository else { return }
+    func resolveConflictKeepApp(expectedConflictID: UUID? = nil) async {
+        guard let conflict,
+              expectedConflictID == nil || expectedConflictID == conflict.id,
+              let note = notes.first(where: { $0.id == conflict.noteID }), let repository else { return }
         let intendedHash = Hashing.sha256(text: note.body, lineEnding: note.lineEnding)
         pendingLocalWriteHashes[conflict.noteID, default: []].insert(intendedHash)
         defer { pendingLocalWriteHashes[conflict.noteID]?.remove(intendedHash) }
@@ -564,22 +568,26 @@ final class AppModel {
                 staleSearchDocumentIDs.remove(conflict.noteID)
                 baseBodies[conflict.noteID] = notes[index].body
                 scheduleCacheUpsert(notes[index])
-                await completeConflictResolution(noteID: conflict.noteID)
+                await completeConflictResolution(conflictID: conflict.id, noteID: conflict.noteID)
             case .conflict(let data, let hash):
                 presentConflict(makeConflict(note: notes[index], data: data, hash: hash))
             }
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func resolveConflictMerge(body: String) async {
-        guard let conflict, let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
+    func resolveConflictMerge(body: String, expectedConflictID: UUID? = nil) async {
+        guard let conflict,
+              expectedConflictID == nil || expectedConflictID == conflict.id,
+              let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
         notes[index].body = body
         notes[index].revision += 1
-        await resolveConflictKeepApp()
+        await resolveConflictKeepApp(expectedConflictID: conflict.id)
     }
 
-    func resolveConflictKeepBoth() async {
-        guard let conflict, let libraryURL, let repository,
+    func resolveConflictKeepBoth(expectedConflictID: UUID? = nil) async {
+        guard let conflict,
+              expectedConflictID == nil || expectedConflictID == conflict.id,
+              let libraryURL, let repository,
               let appVersion = notes.first(where: { $0.id == conflict.noteID }) else { return }
         do {
             let ext = URL(fileURLWithPath: appVersion.filename).pathExtension
@@ -626,11 +634,11 @@ final class AppModel {
             scheduleCacheUpsert(copy)
             select([copy.id], explicitly: true)
             refreshSearch()
-            await completeConflictResolution(noteID: appVersion.id)
+            await completeConflictResolution(conflictID: conflict.id, noteID: appVersion.id)
         } catch { errorMessage = error.localizedDescription }
     }
 
-    private func completeConflictResolution(noteID: UUID) async {
+    private func completeConflictResolution(conflictID: UUID, noteID: UUID) async {
         saveTasks[noteID]?.cancel()
         saveTasks[noteID] = nil
         deadlineTasks[noteID]?.cancel()
@@ -641,15 +649,17 @@ final class AppModel {
         journalDeadlineTasks[noteID] = nil
 
         await journalOperations[noteID]?.value
+        guard conflict?.id == conflictID else { return }
         if let journalID = journalIDs[noteID] {
             do { try await journal?.remove(journalID) }
             catch { errorMessage = error.localizedDescription }
         }
+        guard conflict?.id == conflictID else { return }
         journalIDs[noteID] = nil
         journalOperations[noteID] = nil
         journalOperationIDs[noteID] = nil
         dirtyNoteIDs.remove(noteID)
-        if conflict?.noteID == noteID { conflict = takeNextQueuedConflict() }
+        conflict = takeNextQueuedConflict()
     }
 
     func flushAll() async throws {

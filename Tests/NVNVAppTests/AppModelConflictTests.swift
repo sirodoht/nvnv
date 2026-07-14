@@ -108,6 +108,32 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func staleResolverCannotResolveANewerConflictForTheSameNote() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        let note = try #require(model.notes.first)
+        let first = Conflict(
+            noteID: note.id, baseBody: note.body, appBody: "first app",
+            fileBody: "first file", fileHash: note.lastSavedHash
+        )
+        let replacement = Conflict(
+            noteID: note.id, baseBody: note.body, appBody: "second app",
+            fileBody: "second file", fileHash: note.lastSavedHash
+        )
+        model.presentConflict(first)
+        model.presentConflict(replacement)
+
+        await model.resolveConflictUseFile(expectedConflictID: first.id)
+
+        #expect(model.conflict?.id == replacement.id)
+        #expect(model.notes.first?.body == "alpha")
+        await model.resolveConflictUseFile(expectedConflictID: replacement.id)
+        #expect(model.notes.first?.body == "second file")
+        await model.forgetLibrary()
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
