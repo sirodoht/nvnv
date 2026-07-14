@@ -134,6 +134,14 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func completingAnOlderJournalRemovalKeepsNewerOwnership() {
+        let removed = UUID()
+        let newer = UUID()
+
+        #expect(AppModel.journalID(afterRemoving: removed, current: newer) == newer)
+        #expect(AppModel.journalID(afterRemoving: removed, current: removed) == nil)
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

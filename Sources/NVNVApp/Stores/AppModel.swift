@@ -653,9 +653,9 @@ final class AppModel {
         if let journalID = journalIDs[noteID] {
             do { try await journal?.remove(journalID) }
             catch { errorMessage = error.localizedDescription }
+            journalIDs[noteID] = Self.journalID(afterRemoving: journalID, current: journalIDs[noteID])
         }
         guard conflict?.id == conflictID else { return }
-        journalIDs[noteID] = nil
         journalOperations[noteID] = nil
         journalOperationIDs[noteID] = nil
         dirtyNoteIDs.remove(noteID)
@@ -1128,7 +1128,7 @@ final class AppModel {
                 baseBodies[id] = snapshot.body
                 if let journalID = journalIDs[id], notes[current].revision == snapshot.revision {
                     try? await journal?.remove(journalID)
-                    journalIDs[id] = nil
+                    journalIDs[id] = Self.journalID(afterRemoving: journalID, current: journalIDs[id])
                 }
                 scheduleCacheUpsert(notes[current])
             case .conflict(let data, let hash):
@@ -1145,6 +1145,10 @@ final class AppModel {
             noteID: note.id, baseBody: baseBodies[note.id] ?? "",
             appBody: note.body, fileBody: fileBody, fileHash: hash
         )
+    }
+
+    static func journalID(afterRemoving removed: UUID, current: UUID?) -> UUID? {
+        current == removed ? nil : current
     }
 
     func presentConflict(_ newConflict: Conflict) {
