@@ -26,7 +26,7 @@ final class AppModel {
     var errorMessage: String?
     var transientMessage: String?
     var conflict: Conflict? {
-        didSet { if conflict != nil { isConflictPresented = true } }
+        didSet { isConflictPresented = conflict != nil }
     }
     var isConflictPresented = false
     var isRenaming = false
@@ -81,6 +81,7 @@ final class AppModel {
     private var journalIDs: [UUID: UUID] = [:]
     private var baseBodies: [UUID: String] = [:]
     private var dirtyNoteIDs: Set<UUID> = []
+    private var pendingLocalWriteHashes: [UUID: Set<String>] = [:]
     private var renameOriginalQuery = ""
     private var priorExplicitQuery: String?
     private var settingsTask: Task<Void, Never>?
@@ -180,6 +181,7 @@ final class AppModel {
         cacheIndexedSearchVersions = [:]
         baseBodies = [:]
         dirtyNoteIDs = []
+        pendingLocalWriteHashes = [:]
         lastJournaledRevision = [:]
         journalIDs = [:]
         journalOperations = [:]
@@ -500,6 +502,9 @@ final class AppModel {
 
     func resolveConflictKeepApp() async {
         guard let conflict, let index = notes.firstIndex(where: { $0.id == conflict.noteID }), let repository else { return }
+        let intendedHash = Hashing.sha256(text: notes[index].body, lineEnding: notes[index].lineEnding)
+        pendingLocalWriteHashes[conflict.noteID, default: []].insert(intendedHash)
+        defer { pendingLocalWriteHashes[conflict.noteID]?.remove(intendedHash) }
         do {
             let result = try await repository.forceSave(note: notes[index], expectedHash: conflict.fileHash)
             switch result {
@@ -988,6 +993,9 @@ final class AppModel {
         await writeJournalNow(id)
         guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
         let snapshot = notes[index]
+        let intendedHash = Hashing.sha256(text: snapshot.body, lineEnding: snapshot.lineEnding)
+        pendingLocalWriteHashes[id, default: []].insert(intendedHash)
+        defer { pendingLocalWriteHashes[id]?.remove(intendedHash) }
         do {
             switch try await repository.save(note: snapshot) {
             case .saved(let hash, let date, let identity):
@@ -1028,6 +1036,23 @@ final class AppModel {
         )
     }
 
+    private func acknowledgingSavedFile(_ disk: Note, whilePreserving app: Note) -> Note {
+        var acknowledged = app
+        acknowledged.title = disk.title
+        acknowledged.filename = disk.filename
+        acknowledged.modifiedAt = disk.modifiedAt
+        acknowledged.lastSavedHash = disk.lastSavedHash
+        acknowledged.lineEnding = disk.lineEnding
+        acknowledged.fileIdentity = disk.fileIdentity
+        acknowledged.fileSize = disk.fileSize
+        acknowledged.fileModificationSeconds = disk.fileModificationSeconds
+        acknowledged.fileModificationNanoseconds = disk.fileModificationNanoseconds
+        acknowledged.fileStatusChangeSeconds = disk.fileStatusChangeSeconds
+        acknowledged.fileStatusChangeNanoseconds = disk.fileStatusChangeNanoseconds
+        acknowledged.revision = max(app.revision, disk.revision)
+        return acknowledged
+    }
+
     private func reconcileExternalChanges(_ change: DirectoryWatcher.Change) async {
         guard let libraryURL else { return }
         if !change.requiresFullRescan {
@@ -1045,6 +1070,7 @@ final class AppModel {
                 try scanner.scan(directory: libraryURL, recognizedExtensions: extensions, cached: oldByFilename)
             }.value
             guard generation == reconcileGeneration else { return }
+            let currentByID = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0) })
             let oldByIdentity = Dictionary(uniqueKeysWithValues: cachedNotes.compactMap { note in note.fileIdentity.map { ($0, note) } })
             let identityPreserved = scan.notes.map { disk -> Note in
                 guard oldByFilename[disk.filename] == nil, let identity = disk.fileIdentity,
@@ -1068,21 +1094,36 @@ final class AppModel {
             var reconciled: [Note] = []
             for disk in scan.notes {
                 guard let old = oldByFilename[disk.filename] else { reconciled.append(disk); continue }
-                if disk.lastSavedHash == old.lastSavedHash { reconciled.append(old); continue }
-                if dirtyNoteIDs.contains(old.id) {
-                    conflict = Conflict(noteID: old.id, baseBody: baseBodies[old.id] ?? "", appBody: old.body, fileBody: disk.body, fileHash: disk.lastSavedHash)
-                    reconciled.append(old)
-                } else {
+                let app = currentByID[old.id] ?? old
+                let disposition = FileChangeClassifier.classify(
+                    diskHash: disk.lastSavedHash, lastSavedHash: app.lastSavedHash,
+                    diskBody: disk.body, appBody: app.body,
+                    isDirty: dirtyNoteIDs.contains(app.id),
+                    pendingLocalWriteHashes: pendingLocalWriteHashes[app.id] ?? []
+                )
+                switch disposition {
+                case .unchanged:
+                    reconciled.append(acknowledgingSavedFile(disk, whilePreserving: app))
+                case .localWrite, .identicalContent:
+                    reconciled.append(acknowledgingSavedFile(disk, whilePreserving: app))
+                    baseBodies[app.id] = disk.body
+                case .conflict:
+                    conflict = Conflict(
+                        noteID: app.id, baseBody: baseBodies[app.id] ?? "",
+                        appBody: app.body, fileBody: disk.body, fileHash: disk.lastSavedHash
+                    )
+                    reconciled.append(app)
+                case .external:
                     reconciled.append(disk)
                     baseBodies[disk.id] = disk.body
                     transientMessage = "“\(disk.title)” changed outside nvnv. Its undo history was cleared."
                 }
             }
             let scannedFilenames = Set(scan.notes.map(\.filename))
-            for old in notes where !scannedFilenames.contains(old.filename) {
-                if dirtyNoteIDs.contains(old.id) {
-                    conflict = Conflict(noteID: old.id, baseBody: baseBodies[old.id] ?? "", appBody: old.body, fileBody: "", fileHash: "")
-                    reconciled.append(old)
+            for app in notes where !scannedFilenames.contains(app.filename) {
+                if dirtyNoteIDs.contains(app.id) {
+                    conflict = Conflict(noteID: app.id, baseBody: baseBodies[app.id] ?? "", appBody: app.body, fileBody: "", fileHash: "")
+                    reconciled.append(app)
                 }
             }
             notes = reconciled
@@ -1119,6 +1160,7 @@ final class AppModel {
                 )
             }.value
             guard generation == reconcileGeneration else { return }
+            let currentByID = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0) })
 
             let affectedFilenames = Set(relevantPaths.map(\.lastPathComponent))
             var upsertsByID: [UUID: Note] = [:]
@@ -1144,21 +1186,31 @@ final class AppModel {
                         fileStatusChangeSeconds: disk.fileStatusChangeSeconds,
                         fileStatusChangeNanoseconds: disk.fileStatusChangeNanoseconds
                     )
-                } else if disk.lastSavedHash == old.lastSavedHash {
-                    // Preserve the newly observed fingerprint so a metadata-only
-                    // event does not force the next scan to reopen and hash again.
-                    upsertsByID[old.id] = disk
-                    continue
                 }
-                if dirtyNoteIDs.contains(old.id) && disk.lastSavedHash != old.lastSavedHash {
+                let app = currentByID[old.id] ?? old
+                let disposition = FileChangeClassifier.classify(
+                    diskHash: disk.lastSavedHash, lastSavedHash: app.lastSavedHash,
+                    diskBody: disk.body, appBody: app.body,
+                    isDirty: dirtyNoteIDs.contains(app.id),
+                    pendingLocalWriteHashes: pendingLocalWriteHashes[app.id] ?? []
+                )
+                switch disposition {
+                case .unchanged:
+                    // Preserve current text while recording the newest file
+                    // fingerprint from a metadata-only event.
+                    upsertsByID[app.id] = acknowledgingSavedFile(disk, whilePreserving: app)
+                case .localWrite, .identicalContent:
+                    upsertsByID[app.id] = acknowledgingSavedFile(disk, whilePreserving: app)
+                    baseBodies[app.id] = disk.body
+                case .conflict:
                     conflict = Conflict(
-                        noteID: old.id, baseBody: baseBodies[old.id] ?? "", appBody: old.body,
+                        noteID: app.id, baseBody: baseBodies[app.id] ?? "", appBody: app.body,
                         fileBody: disk.body, fileHash: disk.lastSavedHash
                     )
-                    upsertsByID[old.id] = old
-                } else {
-                    upsertsByID[old.id] = disk
-                    baseBodies[old.id] = disk.body
+                    upsertsByID[app.id] = app
+                case .external:
+                    upsertsByID[app.id] = disk
+                    baseBodies[app.id] = disk.body
                     transientMessage = "“\(disk.title)” changed outside nvnv. Its undo history was cleared."
                 }
             }
@@ -1178,7 +1230,7 @@ final class AppModel {
             }
 
             let actualUpserts = upsertsByID.values.filter { oldByID[$0.id] != $0 }
-            var reconciled = cachedNotes.filter { !removedIDs.contains($0.id) }
+            var reconciled = notes.filter { !removedIDs.contains($0.id) }
             var indices = Dictionary(uniqueKeysWithValues: reconciled.enumerated().map { ($0.element.id, $0.offset) })
             for note in actualUpserts {
                 if let index = indices[note.id] {
