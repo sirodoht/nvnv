@@ -400,7 +400,7 @@ final class AppModel {
     }
 
     func updateBody(_ body: String) {
-        guard !isReadOnly, conflict == nil, let id = selection.first,
+        guard !isReadOnly, let id = selection.first, conflict?.noteID != id,
               let index = notes.firstIndex(where: { $0.id == id }), notes[index].body != body else { return }
         notes[index].body = body
         notes[index].modifiedAt = .now
