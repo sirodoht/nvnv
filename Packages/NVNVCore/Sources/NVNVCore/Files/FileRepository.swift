@@ -19,8 +19,17 @@ public struct FileWriteMetadata: Sendable {
 
 public actor FileRepository {
     private let libraryURL: URL
+    private let beforeAtomicReplacement: (@Sendable () throws -> Void)?
 
-    public init(libraryURL: URL) { self.libraryURL = libraryURL }
+    public init(libraryURL: URL) {
+        self.libraryURL = libraryURL
+        beforeAtomicReplacement = nil
+    }
+
+    init(libraryURL: URL, beforeAtomicReplacement: @escaping @Sendable () throws -> Void) {
+        self.libraryURL = libraryURL
+        self.beforeAtomicReplacement = beforeAtomicReplacement
+    }
 
     public func create(filename: String, body: String, lineEnding: LineEnding = .lf) throws -> FileWriteResult {
         let destination = libraryURL.appendingPathComponent(filename)
@@ -117,6 +126,7 @@ public actor FileRepository {
         let temporary = libraryURL.appendingPathComponent(".nvnv-write-\(UUID().uuidString).tmp")
         let fd = open(temporary.path, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR)
         guard fd >= 0 else { throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(errno))) }
+        var removeTemporaryOnFailure = true
         do {
             try bytes.withUnsafeBytes { rawBuffer in
                 guard let base = rawBuffer.baseAddress else { return }
@@ -147,12 +157,40 @@ public actor FileRepository {
 
             if FileManager.default.fileExists(atPath: destination.path) {
                 try preserveMetadata(from: destination, to: temporary)
-            }
+                try beforeAtomicReplacement?()
+                guard renamex_np(temporary.path, destination.path, UInt32(RENAME_SWAP)) == 0 else {
+                    if errno == ENOENT, expectedHash != nil {
+                        try? FileManager.default.removeItem(at: temporary)
+                        return .conflict(currentData: Data(), currentHash: "")
+                    }
+                    throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(errno)))
+                }
+                removeTemporaryOnFailure = false
+                Failpoint.trigger("after-atomic-replacement")
 
-            guard Darwin.rename(temporary.path, destination.path) == 0 else {
-                throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(errno)))
+                let displacedData = try Data(contentsOf: temporary)
+                let displacedHash = Hashing.sha256(displacedData)
+                if let expectedHash, displacedHash != expectedHash {
+                    guard renamex_np(temporary.path, destination.path, UInt32(RENAME_SWAP)) == 0 else {
+                        throw NVNVError.fileOperation(
+                            path: destination.lastPathComponent,
+                            reason: "the destination changed and could not be restored; its prior version remains at \(temporary.lastPathComponent)"
+                        )
+                    }
+                    removeTemporaryOnFailure = true
+                    try syncDirectory()
+                    try FileManager.default.removeItem(at: temporary)
+                    try syncDirectory()
+                    return .conflict(currentData: displacedData, currentHash: displacedHash)
+                }
+                try FileManager.default.removeItem(at: temporary)
+            } else {
+                try beforeAtomicReplacement?()
+                guard Darwin.rename(temporary.path, destination.path) == 0 else {
+                    throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(errno)))
+                }
+                Failpoint.trigger("after-atomic-replacement")
             }
-            Failpoint.trigger("after-atomic-replacement")
             try syncDirectory()
             Failpoint.trigger("after-directory-durability")
             let verified = try Data(contentsOf: destination)
@@ -160,7 +198,7 @@ public actor FileRepository {
             return .saved(try writeMetadata(for: destination, hash: Hashing.sha256(verified)))
         } catch {
             close(fd)
-            try? FileManager.default.removeItem(at: temporary)
+            if removeTemporaryOnFailure { try? FileManager.default.removeItem(at: temporary) }
             throw error
         }
     }

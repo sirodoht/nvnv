@@ -1,7 +1,7 @@
 import CSQLite
 import Darwin
 import Foundation
-import NVNVCore
+@testable import NVNVCore
 import Testing
 
 @Suite("File-authoritative library")
@@ -45,6 +45,30 @@ struct FileCoreTests {
             }
             #expect(String(data: data, encoding: .utf8) == "external")
             #expect(try String(contentsOf: root.appendingPathComponent("A.txt"), encoding: .utf8) == "external")
+        }
+    }
+
+    @Test func atomicWriterDetectsChangeAfterItsInitialComparison() async throws {
+        try await withTemporaryDirectory { root in
+            let initialRepository = FileRepository(libraryURL: root)
+            guard case .saved(let metadata) = try await initialRepository.create(filename: "A.txt", body: "old") else {
+                Issue.record("create unexpectedly conflicted"); return
+            }
+            let file = root.appendingPathComponent("A.txt")
+            let repository = FileRepository(libraryURL: root) {
+                try Data("late external".utf8).write(to: file)
+            }
+            let note = Note(
+                title: "A", body: "app", filename: "A.txt",
+                lastSavedHash: metadata.hash
+            )
+
+            guard case .conflict(let data, _) = try await repository.save(note: note) else {
+                Issue.record("late external change was overwritten"); return
+            }
+
+            #expect(String(data: data, encoding: .utf8) == "late external")
+            #expect(try String(contentsOf: file, encoding: .utf8) == "late external")
         }
     }
 
