@@ -1124,6 +1124,7 @@ final class AppModel {
             }.value
             guard generation == reconcileGeneration else { return }
             let currentByID = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0) })
+            let oldByID = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.id, $0) })
             let oldByIdentity = Dictionary(uniqueKeysWithValues: cachedNotes.compactMap { note in note.fileIdentity.map { ($0, note) } })
             let identityPreserved = scan.notes.map { disk -> Note in
                 guard oldByFilename[disk.filename] == nil, let identity = disk.fileIdentity,
@@ -1145,8 +1146,13 @@ final class AppModel {
             }
             scan = ScanResult(notes: identityPreserved, issues: scan.issues)
             var reconciled: [Note] = []
+            var handledNoteIDs: Set<UUID> = []
             for disk in scan.notes {
-                guard let old = oldByFilename[disk.filename] else { reconciled.append(disk); continue }
+                guard let old = oldByFilename[disk.filename] ?? oldByID[disk.id] else {
+                    reconciled.append(disk)
+                    continue
+                }
+                handledNoteIDs.insert(old.id)
                 let app = currentByID[old.id] ?? old
                 let disposition = FileChangeClassifier.classify(
                     diskHash: disk.lastSavedHash, lastSavedHash: app.lastSavedHash,
@@ -1173,7 +1179,8 @@ final class AppModel {
                 }
             }
             let scannedFilenames = Set(scan.notes.map(\.filename))
-            for app in notes where !scannedFilenames.contains(app.filename) {
+            for app in notes where !scannedFilenames.contains(app.filename)
+                && !handledNoteIDs.contains(app.id) {
                 if dirtyNoteIDs.contains(app.id) {
                     conflict = Conflict(noteID: app.id, baseBody: baseBodies[app.id] ?? "", appBody: app.body, fileBody: "", fileHash: "")
                     reconciled.append(app)
