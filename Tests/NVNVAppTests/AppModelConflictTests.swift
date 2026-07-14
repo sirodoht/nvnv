@@ -129,8 +129,10 @@ struct AppModelConflictTests {
 
         #expect(model.conflict?.id == replacement.id)
         #expect(model.notes.first?.body == "alpha")
+        #expect(model.undoInvalidationGenerations[note.id, default: 0] == 0)
         await model.resolveConflictUseFile(expectedConflictID: replacement.id)
         #expect(model.notes.first?.body == "second file")
+        #expect(model.undoInvalidationGenerations[note.id] == 1)
         await model.forgetLibrary()
     }
 
@@ -140,6 +142,24 @@ struct AppModelConflictTests {
 
         #expect(AppModel.journalID(afterRemoving: removed, current: newer) == newer)
         #expect(AppModel.journalID(afterRemoving: removed, current: removed) == nil)
+    }
+
+    @Test func undoInvalidationsClearEachGenerationExactlyOnce() {
+        let registry = EditorUndoRegistry()
+        let noteID = UUID()
+        let target = NSObject()
+        let manager = registry.manager(for: noteID)
+        manager.registerUndo(withTarget: target) { _ in }
+        #expect(manager.canUndo)
+
+        registry.applyInvalidation(for: noteID, generation: 1)
+        #expect(!manager.canUndo)
+
+        manager.registerUndo(withTarget: target) { _ in }
+        registry.applyInvalidation(for: noteID, generation: 1)
+        #expect(manager.canUndo)
+        registry.applyInvalidation(for: noteID, generation: 2)
+        #expect(!manager.canUndo)
     }
 
     private func makeModel() -> AppModel {

@@ -49,6 +49,7 @@ final class AppModel {
     var defaultExtension = "txt" { didSet { persistSettingsSoon() } }
     var editorCommand: EditorCommand?
     var editorCommandGeneration = 0
+    private(set) var undoInvalidationGenerations: [UUID: Int] = [:]
     private(set) var duplicateTitleKeys: Set<String> = []
 
     private let logger = Logger(subsystem: "app.nvnv", category: "library")
@@ -185,6 +186,7 @@ final class AppModel {
         baseBodies = [:]
         dirtyNoteIDs = []
         pendingLocalWriteHashes = [:]
+        undoInvalidationGenerations = [:]
         savingNoteIDs = []
         lastJournaledRevision = [:]
         journalIDs = [:]
@@ -282,6 +284,7 @@ final class AppModel {
             self.staleSearchDocumentIDs.removeAll()
             recomputeDuplicateTitleKeys()
             self.baseBodies = Dictionary(uniqueKeysWithValues: scan.notes.map { ($0.id, $0.body) })
+            self.undoInvalidationGenerations = [:]
             self.queuedConflicts = [:]
             self.queuedConflictOrder = []
             self.conflict = nil
@@ -536,6 +539,7 @@ final class AppModel {
             return
         }
         notes[index].body = conflict.fileBody
+        invalidateUndoHistory(for: conflict.noteID)
         notes[index].lastSavedHash = conflict.fileHash
         notes[index].revision += 1
         searchDocuments[conflict.noteID] = SearchDocument(note: notes[index])
@@ -581,6 +585,7 @@ final class AppModel {
               let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
         notes[index].body = body
         notes[index].revision += 1
+        invalidateUndoHistory(for: conflict.noteID)
         await resolveConflictKeepApp(expectedConflictID: conflict.id)
     }
 
@@ -619,6 +624,7 @@ final class AppModel {
                 try? cache?.remove(id: appVersion.id)
             } else {
                 notes[index].body = conflict.fileBody
+                invalidateUndoHistory(for: notes[index].id)
                 notes[index].lastSavedHash = conflict.fileHash
                 notes[index].revision += 1
                 searchDocuments[notes[index].id] = SearchDocument(note: notes[index])
@@ -1151,6 +1157,10 @@ final class AppModel {
         current == removed ? nil : current
     }
 
+    private func invalidateUndoHistory(for noteID: UUID) {
+        undoInvalidationGenerations[noteID, default: 0] &+= 1
+    }
+
     func presentConflict(_ newConflict: Conflict) {
         guard let active = conflict else {
             conflict = newConflict
@@ -1270,6 +1280,7 @@ final class AppModel {
                     reconciled.append(app)
                 case .external:
                     reconciled.append(disk)
+                    invalidateUndoHistory(for: disk.id)
                     baseBodies[disk.id] = disk.body
                     transientMessage = "“\(disk.title)” changed outside nvnv. Its undo history was cleared."
                 }
@@ -1366,6 +1377,7 @@ final class AppModel {
                     upsertsByID[app.id] = app
                 case .external:
                     upsertsByID[app.id] = disk
+                    invalidateUndoHistory(for: app.id)
                     baseBodies[app.id] = disk.body
                     transientMessage = "“\(disk.title)” changed outside nvnv. Its undo history was cleared."
                 }

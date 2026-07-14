@@ -5,13 +5,18 @@ import SwiftUI
 @MainActor
 final class EditorUndoRegistry {
     private var managers: [UUID: UndoManager] = [:]
+    private var appliedInvalidationGenerations: [UUID: Int] = [:]
     func manager(for id: UUID) -> UndoManager {
         if let manager = managers[id] { return manager }
         let manager = UndoManager()
         managers[id] = manager
         return manager
     }
-    func clear(_ id: UUID) { managers[id]?.removeAllActions() }
+    func applyInvalidation(for id: UUID, generation: Int) {
+        guard generation > appliedInvalidationGenerations[id, default: 0] else { return }
+        managers[id]?.removeAllActions()
+        appliedInvalidationGenerations[id] = generation
+    }
 }
 
 private final class SessionTextView: NSTextView {
@@ -31,6 +36,7 @@ struct PlainTextEditor: NSViewRepresentable {
     let focusRequest: EditorFocusRequest?
     let command: EditorCommand?
     let commandGeneration: Int
+    let undoInvalidationGeneration: Int
     let undoRegistry: EditorUndoRegistry
     let onChange: (String) -> Void
     let onSelectionChange: (NSRange) -> Void
@@ -74,6 +80,7 @@ struct PlainTextEditor: NSViewRepresentable {
     private func configure(_ text: SessionTextView, coordinator: Coordinator) {
         text.isEditable = editable
         text.isSelectable = true
+        undoRegistry.applyInvalidation(for: note.id, generation: undoInvalidationGeneration)
         text.sessionUndoManager = undoRegistry.manager(for: note.id)
         let chosen = fontName.isEmpty ? nil : NSFont(name: fontName, size: fontSize)
         let desiredFont = chosen ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)

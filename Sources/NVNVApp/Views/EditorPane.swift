@@ -26,6 +26,7 @@ struct EditorPane: View {
                     focusRequest: model.editorFocusRequest,
                     command: model.editorCommand,
                     commandGeneration: model.editorCommandGeneration,
+                    undoInvalidationGeneration: model.undoInvalidationGenerations[note.id, default: 0],
                     undoRegistry: undoRegistry,
                     onChange: model.updateBody,
                     onSelectionChange: model.updateSelection,
