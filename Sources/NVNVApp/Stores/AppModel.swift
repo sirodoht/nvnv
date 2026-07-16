@@ -34,8 +34,12 @@ final class AppModel {
     var editorFocusRequest: EditorFocusRequest?
     var listScrollRequest: ListScrollRequest?
     var dividerFraction = 0.36 { didSet { persistSettingsSoon() } }
+    var showTitleColumn = true { didSet { persistSettingsSoon() } }
     var showModifiedDate = true { didSet { persistSettingsSoon() } }
     var showCreatedDate = false { didSet { persistSettingsSoon() } }
+    var noteListColumnOrder: [NoteListColumn] = [.title, .modified, .created] {
+        didSet { persistSettingsSoon() }
+    }
     var showExcerpts = true { didSet { persistSettingsSoon() } }
     var confirmDeletion = true { didSet { persistSettingsSoon() } }
     var highlightSearch = true { didSet { persistSettingsSoon() } }
@@ -112,6 +116,50 @@ final class AppModel {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
         }.filter { !$0.isEmpty }
         return Set(parsed).union([defaultExtension.lowercased()])
+    }
+
+    var visibleNoteListColumns: [NoteListColumn] {
+        noteListColumnOrder.filter(isNoteListColumnVisible)
+    }
+
+    func isNoteListColumnVisible(_ column: NoteListColumn) -> Bool {
+        switch column {
+        case .title: showTitleColumn
+        case .modified: showModifiedDate
+        case .created: showCreatedDate
+        }
+    }
+
+    func setNoteListColumn(_ column: NoteListColumn, visible: Bool) {
+        guard visible || visibleNoteListColumns.count > 1 else { return }
+        switch column {
+        case .title: showTitleColumn = visible
+        case .modified: showModifiedDate = visible
+        case .created: showCreatedDate = visible
+        }
+
+        guard !visible, sort.field == column.sortField,
+              let replacement = visibleNoteListColumns.first else { return }
+        sort = NoteSort(field: replacement.sortField, ascending: replacement == .title)
+    }
+
+    func moveNoteListColumn(_ source: NoteListColumn, relativeTo target: NoteListColumn, after: Bool) {
+        guard source != target,
+              let sourceIndex = noteListColumnOrder.firstIndex(of: source),
+              noteListColumnOrder.contains(target) else { return }
+        var reordered = noteListColumnOrder
+        reordered.remove(at: sourceIndex)
+        guard let adjustedTargetIndex = reordered.firstIndex(of: target) else { return }
+        reordered.insert(source, at: adjustedTargetIndex + (after ? 1 : 0))
+        noteListColumnOrder = reordered
+    }
+
+    func setVisibleNoteListColumnOrder(_ visibleOrder: [NoteListColumn]) {
+        guard Set(visibleOrder) == Set(visibleNoteListColumns) else { return }
+        var iterator = visibleOrder.makeIterator()
+        noteListColumnOrder = noteListColumnOrder.map { column in
+            isNoteListColumnVisible(column) ? (iterator.next() ?? column) : column
+        }
     }
 
     func restoreLastLibrary() async {
@@ -1453,8 +1501,11 @@ final class AppModel {
     private func apply(_ settings: LibrarySettings) {
         sort = settings.sort
         dividerFraction = settings.dividerFraction
+        showTitleColumn = settings.showTitleColumn ?? true
         showModifiedDate = settings.showModifiedDate
         showCreatedDate = settings.showCreatedDate
+        noteListColumnOrder = Self.normalizedNoteListColumnOrder(settings.noteListColumnOrder)
+        if visibleNoteListColumns.isEmpty { showTitleColumn = true }
         showExcerpts = settings.showExcerpts
         confirmDeletion = settings.confirmDeletion
         highlightSearch = settings.highlightSearch
@@ -1486,8 +1537,10 @@ final class AppModel {
         settings.selectionKind = .none
         settings.sort = sort
         settings.dividerFraction = dividerFraction
+        settings.showTitleColumn = showTitleColumn
         settings.showModifiedDate = showModifiedDate
         settings.showCreatedDate = showCreatedDate
+        settings.noteListColumnOrder = noteListColumnOrder
         settings.showExcerpts = showExcerpts
         settings.confirmDeletion = confirmDeletion
         settings.highlightSearch = highlightSearch
@@ -1502,12 +1555,38 @@ final class AppModel {
         return settings
     }
 
+    static func normalizedNoteListColumnOrder(_ stored: [NoteListColumn]?) -> [NoteListColumn] {
+        var normalized: [NoteListColumn] = []
+        for column in (stored ?? []) + NoteListColumn.allCases where !normalized.contains(column) {
+            normalized.append(column)
+        }
+        return normalized
+    }
+
     private func persistSettingsSoon() {
         settingsTask?.cancel()
         settingsTask = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, let settingsRepository else { return }
             try? await settingsRepository.save(settingsSnapshot())
+        }
+    }
+}
+
+extension NoteListColumn {
+    var title: String {
+        switch self {
+        case .title: "Title"
+        case .modified: "Date Modified"
+        case .created: "Date Created"
+        }
+    }
+
+    var sortField: NoteSortField {
+        switch self {
+        case .title: .title
+        case .modified: .modified
+        case .created: .created
         }
     }
 }

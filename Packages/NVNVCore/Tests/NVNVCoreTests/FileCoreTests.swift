@@ -428,6 +428,8 @@ struct FileCoreTests {
             var settings = LibrarySettings()
             settings.showExcerpts = false
             settings.editorFontSize = 18
+            settings.showTitleColumn = false
+            settings.noteListColumnOrder = [.modified, .created, .title]
             try await repository.save(settings)
 
             let loaded = await repository.load()

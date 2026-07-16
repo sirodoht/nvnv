@@ -32,15 +32,7 @@ struct SettingsView: View {
             }
             Section("Note List") {
                 Toggle("Show body excerpts", isOn: $model.showExcerpts)
-                Toggle("Show date modified", isOn: $model.showModifiedDate)
-                Toggle("Show date created", isOn: $model.showCreatedDate)
                 HStack { Text("Text size"); Slider(value: $model.listFontSize, in: 9...24, step: 1); Text("\(Int(model.listFontSize)) pt").monospacedDigit() }
-                Picker("Sort", selection: $model.sort.field) {
-                    Text("Title").tag(NoteSortField.title)
-                    Text("Date Modified").tag(NoteSortField.modified)
-                    Text("Date Created").tag(NoteSortField.created)
-                }
-                Toggle("Ascending", isOn: $model.sort.ascending)
             }
             Section("Editor") {
                 HStack {

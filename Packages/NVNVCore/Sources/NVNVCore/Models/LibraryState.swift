@@ -11,6 +11,10 @@ public struct LibrarySettings: Codable, Equatable, Sendable {
     public var dividerFraction = 0.36
     public var showModifiedDate = true
     public var showCreatedDate = false
+    /// Optional so settings written before configurable columns continue to decode.
+    public var showTitleColumn: Bool?
+    /// Optional so settings written before column reordering continue to decode.
+    public var noteListColumnOrder: [NoteListColumn]?
     public var showExcerpts = true
     public var confirmDeletion = true
     public var highlightSearch = true
@@ -24,6 +28,14 @@ public struct LibrarySettings: Codable, Equatable, Sendable {
     public var defaultExtension = "txt"
 
     public init() {}
+}
+
+public enum NoteListColumn: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case title
+    case modified
+    case created
+
+    public var id: Self { self }
 }
 
 public enum NVNVError: LocalizedError, Equatable, Sendable {

@@ -58,6 +58,7 @@ struct PlainTextEditor: NSViewRepresentable {
         text.autoresizingMask = [.width]
         text.textContainer?.widthTracksTextView = true
         text.textContainerInset = NSSize(width: 10, height: 8)
+        text.textContainer?.lineFragmentPadding = 0
         text.isRichText = false
         text.importsGraphics = false
         text.allowsUndo = true
