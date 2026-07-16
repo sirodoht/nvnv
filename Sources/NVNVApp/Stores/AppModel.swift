@@ -43,7 +43,6 @@ final class AppModel {
     var showExcerpts = true { didSet { persistSettingsSoon() } }
     var confirmDeletion = true { didSet { persistSettingsSoon() } }
     var highlightSearch = true { didSet { persistSettingsSoon() } }
-    var listFontSize = 11.0 { didSet { persistSettingsSoon() } }
     var editorFontName = "" { didSet { persistSettingsSoon() } }
     var editorFontSize = 12.0 { didSet { persistSettingsSoon() } }
     var softTabs = false { didSet { persistSettingsSoon() } }
@@ -1509,17 +1508,13 @@ final class AppModel {
         showExcerpts = settings.showExcerpts
         confirmDeletion = settings.confirmDeletion
         highlightSearch = settings.highlightSearch
-        // Version 1 shipped with 13 pt as the default. Migrate only that exact
-        // legacy default; preserve sizes the user deliberately selected.
-        listFontSize = settings.schemaVersion < 2 && settings.listFontSize == 13
-            ? 11
-            : settings.listFontSize
         editorFontName = settings.editorFontName
         // Version 2 and earlier shipped with 14 pt as the default editor size.
         // Migrate only that exact default and preserve deliberate custom sizes.
-        editorFontSize = settings.schemaVersion < 3 && settings.editorFontSize == 14
+        let storedEditorFontSize = settings.schemaVersion < 3 && settings.editorFontSize == 14
             ? 12
             : settings.editorFontSize
+        editorFontSize = min(max(storedEditorFontSize, 10), 14)
         softTabs = settings.softTabs
         tabWidth = settings.tabWidth
         tabIndents = settings.tabIndents
@@ -1544,7 +1539,7 @@ final class AppModel {
         settings.showExcerpts = showExcerpts
         settings.confirmDeletion = confirmDeletion
         settings.highlightSearch = highlightSearch
-        settings.listFontSize = listFontSize
+        settings.listFontSize = 11
         settings.editorFontName = editorFontName
         settings.editorFontSize = editorFontSize
         settings.softTabs = softTabs

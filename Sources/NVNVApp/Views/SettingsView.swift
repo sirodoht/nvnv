@@ -32,7 +32,6 @@ struct SettingsView: View {
             }
             Section("Note List") {
                 Toggle("Show body excerpts", isOn: $model.showExcerpts)
-                HStack { Text("Text size"); Slider(value: $model.listFontSize, in: 9...24, step: 1); Text("\(Int(model.listFontSize)) pt").monospacedDigit() }
             }
             Section("Editor") {
                 HStack {
@@ -47,7 +46,7 @@ struct SettingsView: View {
                         model.editorFontSize = 12
                     }
                 }
-                HStack { Text("Text size"); Slider(value: $model.editorFontSize, in: 10...72, step: 1); Text("\(Int(model.editorFontSize)) pt").monospacedDigit() }
+                HStack { Text("Text size"); Slider(value: $model.editorFontSize, in: 10...14, step: 1); Text("\(Int(model.editorFontSize)) pt").monospacedDigit() }
                 Toggle("Use spaces for indentation", isOn: $model.softTabs)
                 Toggle("Tab indents text", isOn: $model.tabIndents)
                 Stepper("Tab width: \(model.tabWidth)", value: $model.tabWidth, in: 1...16)
@@ -118,7 +117,7 @@ private final class EditorFontPanelController: NSObject {
         guard let model else { return }
         let converted = sender.convert(resolvedFont(for: model))
         model.editorFontName = converted.fontName
-        model.editorFontSize = Double(converted.pointSize)
+        model.editorFontSize = min(max(Double(converted.pointSize), 10), 14)
     }
 
     private func resolvedFont(for model: AppModel) -> NSFont {

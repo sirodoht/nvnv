@@ -20,7 +20,7 @@ struct NoteListView: View {
             scrollRequest: model.listScrollRequest,
             duplicateTitleKeys: model.duplicateTitleKeys,
             showExcerpts: model.showExcerpts,
-            fontSize: model.listFontSize,
+            fontSize: 11,
             isReadOnly: model.isReadOnly,
             locale: locale,
             calendar: calendar,
