@@ -46,6 +46,21 @@ struct ColumnConfigurationTests {
         #expect(model.visibleNoteListColumns == [.modified])
     }
 
+    @Test func restoresPersistedFlexibleColumnWidthAndStillFillsTheViewport() {
+        #expect(NoteListColumnWidthLayout.flexibleWidth(
+            viewportWidth: 500,
+            fixedWidth: 138,
+            preferredWidth: 375.5,
+            minimumWidth: 120
+        ) == 375.5)
+        #expect(NoteListColumnWidthLayout.flexibleWidth(
+            viewportWidth: 600,
+            fixedWidth: 138,
+            preferredWidth: 375.5,
+            minimumWidth: 120
+        ) == 462)
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-column-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

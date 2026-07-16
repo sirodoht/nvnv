@@ -34,6 +34,17 @@ struct NoteListView: View {
     }
 }
 
+enum NoteListColumnWidthLayout {
+    static func flexibleWidth(
+        viewportWidth: CGFloat,
+        fixedWidth: CGFloat,
+        preferredWidth: CGFloat,
+        minimumWidth: CGFloat
+    ) -> CGFloat {
+        max(preferredWidth, viewportWidth - fixedWidth, minimumWidth)
+    }
+}
+
 /// Finder and nvALT get smooth column movement because one `NSTableView` owns
 /// both their headers and rows. Keeping that ownership intact also avoids
 /// synchronizing drag snapshots between AppKit and SwiftUI during mouse tracking.
@@ -209,13 +220,15 @@ private struct NativeNoteTable: NSViewRepresentable {
 
         func tableViewColumnDidResize(_ notification: Notification) {
             guard !isSynchronizingColumns,
-                  let tableColumn = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
-                  let column = NoteListColumn(rawValue: tableColumn.identifier.rawValue) else { return }
-            let width = Double(max(tableColumn.width, minimumWidth(for: column)))
-            switch column {
-            case .title: parent.titleColumnWidth = width
-            case .modified: parent.modifiedColumnWidth = width
-            case .created: parent.createdColumnWidth = width
+                  let tableView = notification.object as? NSTableView else { return }
+            for tableColumn in tableView.tableColumns {
+                guard let column = NoteListColumn(rawValue: tableColumn.identifier.rawValue) else { continue }
+                let width = Double(max(tableColumn.width, minimumWidth(for: column)))
+                switch column {
+                case .title: parent.titleColumnWidth = width
+                case .modified: parent.modifiedColumnWidth = width
+                case .created: parent.createdColumnWidth = width
+                }
             }
         }
 
@@ -321,7 +334,12 @@ private struct NativeNoteTable: NSViewRepresentable {
             let flexibleMinimum = flexible == .title
                 ? parent.minimumTitleColumnWidth
                 : parent.minimumDateColumnWidth
-            let flexibleWidth = max(viewportWidth - fixedWidth, flexibleMinimum)
+            let flexibleWidth = NoteListColumnWidthLayout.flexibleWidth(
+                viewportWidth: viewportWidth,
+                fixedWidth: fixedWidth,
+                preferredWidth: desiredWidth(for: flexible),
+                minimumWidth: flexibleMinimum
+            )
 
             for column in parent.columns {
                 guard let tableColumn = tableColumn(for: column, in: tableView) else { continue }
