@@ -7,7 +7,9 @@ struct NoteListView: View {
     @Environment(\.locale) private var locale
     @Environment(\.calendar) private var calendar
     @Environment(\.timeZone) private var timeZone
+    @AppStorage("noteListTitleColumnWidth") private var titleColumnWidth = 0.0
     @AppStorage("noteListModifiedDateColumnWidth") private var modifiedColumnWidth = 150.0
+    @AppStorage("noteListCreatedDateColumnWidth") private var createdColumnWidth = 130.0
 
     var body: some View {
         NativeNoteTable(
@@ -25,7 +27,9 @@ struct NoteListView: View {
             locale: locale,
             calendar: calendar,
             timeZone: timeZone,
-            modifiedColumnWidth: $modifiedColumnWidth
+            titleColumnWidth: $titleColumnWidth,
+            modifiedColumnWidth: $modifiedColumnWidth,
+            createdColumnWidth: $createdColumnWidth
         )
     }
 }
@@ -48,9 +52,10 @@ private struct NativeNoteTable: NSViewRepresentable {
     let locale: Locale
     let calendar: Calendar
     let timeZone: TimeZone
+    @Binding var titleColumnWidth: Double
     @Binding var modifiedColumnWidth: Double
+    @Binding var createdColumnWidth: Double
 
-    private let createdColumnWidth: CGFloat = 130
     private let minimumTitleColumnWidth: CGFloat = 120
     private let minimumDateColumnWidth: CGFloat = 100
 
@@ -100,7 +105,7 @@ private struct NativeNoteTable: NSViewRepresentable {
             tableView.allowsColumnSelection = false
             tableView.allowsColumnReordering = true
             tableView.allowsColumnResizing = true
-            tableView.columnAutoresizingStyle = .noColumnAutoresizing
+            tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
             tableView.style = .plain
             tableView.selectionHighlightStyle = .regular
             tableView.focusRingType = .none
@@ -205,8 +210,13 @@ private struct NativeNoteTable: NSViewRepresentable {
         func tableViewColumnDidResize(_ notification: Notification) {
             guard !isSynchronizingColumns,
                   let tableColumn = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
-                  tableColumn.identifier.rawValue == NoteListColumn.modified.rawValue else { return }
-            parent.modifiedColumnWidth = max(Double(tableColumn.width), parent.minimumDateColumnWidth)
+                  let column = NoteListColumn(rawValue: tableColumn.identifier.rawValue) else { return }
+            let width = Double(max(tableColumn.width, minimumWidth(for: column)))
+            switch column {
+            case .title: parent.titleColumnWidth = width
+            case .modified: parent.modifiedColumnWidth = width
+            case .created: parent.createdColumnWidth = width
+            }
         }
 
         private func configure(_ cell: NoteListCellView, column: NoteListColumn, result: SearchResult) {
@@ -315,12 +325,8 @@ private struct NativeNoteTable: NSViewRepresentable {
 
             for column in parent.columns {
                 guard let tableColumn = tableColumn(for: column, in: tableView) else { continue }
-                tableColumn.resizingMask = column == .modified && column != flexible ? [.userResizingMask] : []
-                tableColumn.maxWidth = column == .modified && column != flexible
-                    ? max(viewportWidth - fixedColumns.filter { $0 != .modified }.reduce(flexibleMinimum) {
-                        $0 + desiredWidth(for: $1)
-                    }, parent.minimumDateColumnWidth)
-                    : .greatestFiniteMagnitude
+                tableColumn.resizingMask = [.userResizingMask, .autoresizingMask]
+                tableColumn.maxWidth = .greatestFiniteMagnitude
                 let width = column == flexible ? flexibleWidth : desiredWidth(for: column)
                 if abs(tableColumn.width - width) > 0.5 { tableColumn.width = width }
             }
@@ -331,10 +337,17 @@ private struct NativeNoteTable: NSViewRepresentable {
 
         private func desiredWidth(for column: NoteListColumn) -> CGFloat {
             switch column {
-            case .title: parent.minimumTitleColumnWidth
+            case .title:
+                parent.titleColumnWidth > 0
+                    ? max(CGFloat(parent.titleColumnWidth), parent.minimumTitleColumnWidth)
+                    : parent.minimumTitleColumnWidth
             case .modified: max(CGFloat(parent.modifiedColumnWidth), parent.minimumDateColumnWidth)
-            case .created: parent.createdColumnWidth
+            case .created: max(CGFloat(parent.createdColumnWidth), parent.minimumDateColumnWidth)
             }
+        }
+
+        private func minimumWidth(for column: NoteListColumn) -> CGFloat {
+            column == .title ? parent.minimumTitleColumnWidth : parent.minimumDateColumnWidth
         }
 
         private func synchronizeSortIndicator(in tableView: NSTableView) {

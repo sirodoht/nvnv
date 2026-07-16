@@ -277,7 +277,13 @@ final class AppModel {
         selection = defaults.selectedNoteIDs
         selectionKind = defaults.selectionKind
         navigationHistory = []
-        UserDefaults.standard.removeObject(forKey: "noteListModifiedDateColumnWidth")
+        for key in [
+            "noteListTitleColumnWidth",
+            "noteListModifiedDateColumnWidth",
+            "noteListCreatedDateColumnWidth",
+        ] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
         settingsTask?.cancel()
         do {
             try await settingsRepository.save(settingsSnapshot())
