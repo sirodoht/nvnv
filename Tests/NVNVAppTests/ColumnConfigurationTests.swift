@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import NVNVCore
 import Testing
 @testable import nvnv
@@ -11,6 +11,13 @@ struct ColumnConfigurationTests {
             .created, .title, .modified,
         ])
         #expect(AppModel.normalizedNoteListColumnOrder(nil) == [.title, .modified, .created])
+    }
+
+    @Test func defaultsToTitleThenModifiedWithNewestNotesFirst() {
+        let model = makeModel()
+
+        #expect(model.visibleNoteListColumns == [.title, .modified])
+        #expect(model.sort == NoteSort(field: .modified, ascending: false))
     }
 
     @Test func reordersAColumnOnEitherSideOfItsDropTarget() {
@@ -59,6 +66,18 @@ struct ColumnConfigurationTests {
             preferredWidth: 375.5,
             minimumWidth: 120
         ) == 462)
+    }
+
+    @Test func centersNoteListTextWithinItsRow() {
+        let cell = NoteListCellView(
+            identifier: NSUserInterfaceItemIdentifier("layout-test"),
+            leadingInset: 10
+        )
+        cell.frame = NSRect(x: 0, y: 0, width: 300, height: 16)
+        cell.label.font = .systemFont(ofSize: 11)
+        cell.layoutSubtreeIfNeeded()
+
+        #expect(abs(cell.label.frame.midY - cell.bounds.midY) < 0.001)
     }
 
     private func makeModel() -> AppModel {

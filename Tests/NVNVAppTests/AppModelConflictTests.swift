@@ -19,6 +19,70 @@ struct AppModelConflictTests {
         #expect(!model.isConflictPresented)
     }
 
+    @Test func libraryPathUsesInjectedPreferencesForSaveRestoreAndForget() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "nvnv-library-preferences-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let firstModel = AppModel(userDefaults: defaults)
+        await firstModel.openLibrary(root, confirmedAuxiliaryCreation: true)
+        #expect(defaults.string(forKey: "lastLibraryPath") == root.standardizedFileURL.resolvingSymlinksInPath().path)
+
+        let restoredModel = AppModel(userDefaults: defaults)
+        #expect(restoredModel.isRestoringLibrary)
+        await restoredModel.restoreLastLibrary()
+        #expect(restoredModel.libraryURL == root.standardizedFileURL.resolvingSymlinksInPath())
+
+        await firstModel.forgetLibrary()
+        #expect(defaults.string(forKey: "lastLibraryPath") == nil)
+        await restoredModel.forgetLibrary()
+    }
+
+    @Test func newlyCreatedExactMatchRemainsVisibleAfterSearchRefresh() async throws {
+        let root = try makeLibrary([:])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        let title = "hello new text 12345"
+        model.userEnteredSearchText(title)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(model.results.isEmpty)
+
+        await model.submitSearch()
+        let created = try #require(model.notes.first { $0.title == title })
+        #expect(model.results.contains { $0.id == created.id })
+
+        try await Task.sleep(for: .seconds(1))
+        #expect(model.results.contains { $0.id == created.id })
+        #expect(model.selection == [created.id])
+        await model.forgetLibrary()
+    }
+
+    @Test func partialCachedSearchCannotHideMatchingExplicitSelection() throws {
+        let selected = Note(
+            title: "hello new text 12345", body: "", createdAt: .now,
+            modifiedAt: .now, filename: "hello new text 12345.txt",
+            lastSavedHash: "hash"
+        )
+        let unrelated = Note(
+            title: "unrelated", body: "", createdAt: .now,
+            modifiedAt: .now, filename: "unrelated.txt", lastSavedHash: "hash"
+        )
+        let documents = [selected, unrelated].reduce(into: [UUID: SearchDocument]()) {
+            $0[$1.id] = SearchDocument(note: $1)
+        }
+
+        let resolved = AppModel.resultsPreservingMatchingSelection(
+            found: [], selection: [selected.id], documents: documents,
+            query: SearchQuery(selected.title), sort: NoteSort(field: .modified, ascending: false)
+        )
+
+        #expect(resolved.map(\.id) == [selected.id])
+    }
+
     @Test func unrelatedNoteRemainsEditableDuringConflict() async throws {
         let root = try makeLibrary(["A.txt": "alpha", "B.txt": "beta"])
         defer { try? FileManager.default.removeItem(at: root) }

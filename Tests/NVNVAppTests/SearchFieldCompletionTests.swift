@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 @testable import nvnv
 
@@ -52,5 +52,64 @@ struct SearchFieldCompletionTests {
 
         #expect(presentation.string == "ginger")
         #expect(presentation.completionRange == nil)
+    }
+
+    @MainActor
+    @Test func backspaceDoesNotImmediatelyRestoreADeletedCompletion() {
+        var changedText: String?
+        let field = NSTextField()
+        let editor = NSTextView()
+        let searchField = CompletingSearchField(
+            text: "degrowth ",
+            completionTitle: "degrowth 234",
+            placeholder: "",
+            focusGeneration: 0,
+            onChange: { changedText = $0 },
+            onSubmit: {},
+            onMove: { _ in },
+            onEscape: {},
+            onFocusChange: { _ in }
+        )
+        let coordinator = searchField.makeCoordinator()
+
+        editor.string = "degrowth 234"
+        editor.setSelectedRange(NSRange(location: 9, length: 3))
+        let handled = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.deleteBackward(_:))
+        )
+        #expect(!handled)
+
+        editor.string = "degrowth "
+        editor.setSelectedRange(NSRange(location: 9, length: 0))
+        coordinator.controlTextDidChange(Notification(
+            name: NSControl.textDidChangeNotification,
+            object: field,
+            userInfo: ["NSFieldEditor": editor]
+        ))
+        coordinator.updateField(field, text: "degrowth ", completionTitle: "degrowth 234")
+
+        #expect(changedText == "degrowth ")
+        #expect(field.stringValue == "degrowth ")
+
+        let secondHandled = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.deleteBackward(_:))
+        )
+        #expect(!secondHandled)
+
+        editor.string = "degrowth"
+        editor.setSelectedRange(NSRange(location: 8, length: 0))
+        coordinator.controlTextDidChange(Notification(
+            name: NSControl.textDidChangeNotification,
+            object: field,
+            userInfo: ["NSFieldEditor": editor]
+        ))
+        coordinator.updateField(field, text: "degrowth", completionTitle: "degrowth 234")
+
+        #expect(changedText == "degrowth")
+        #expect(field.stringValue == "degrowth")
     }
 }

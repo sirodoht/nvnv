@@ -116,7 +116,10 @@ private struct NativeNoteTable: NSViewRepresentable {
             tableView.allowsColumnSelection = false
             tableView.allowsColumnReordering = true
             tableView.allowsColumnResizing = true
-            tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+            // Widths are restored explicitly below. Letting AppKit distribute a
+            // later frame change across every column turns the saved 70/30 split
+            // into 50/50 during launch.
+            tableView.columnAutoresizingStyle = .noColumnAutoresizing
             tableView.style = .plain
             tableView.selectionHighlightStyle = .regular
             tableView.focusRingType = .none
@@ -135,15 +138,17 @@ private struct NativeNoteTable: NSViewRepresentable {
             }
             scrollView.noteHeaderView.menuProvider = { [weak self] in self?.columnMenu() }
             scrollView.noteHeaderView.onTrackingChanged = { [weak self, weak scrollView] tracking in
-                guard let self else { return }
+                guard let self, let scrollView else { return }
                 self.isTrackingHeader = tracking
+                // During a real divider drag, preserve AppKit's native behavior
+                // of balancing the other columns to keep the table fitted.
+                scrollView.noteTableView.columnAutoresizingStyle = tracking
+                    ? .uniformColumnAutoresizingStyle
+                    : .noColumnAutoresizing
                 if !tracking {
                     // SwiftUI publishes model mutations after AppKit's mouse
                     // tracking loop returns. Reconcile on that next turn.
-                    DispatchQueue.main.async {
-                        guard let scrollView else { return }
-                        self.synchronize(scrollView)
-                    }
+                    DispatchQueue.main.async { self.synchronize(scrollView) }
                 }
             }
             tableView.contextMenuProvider = { [weak self] row in self?.rowMenu(for: row) }
@@ -164,6 +169,27 @@ private struct NativeNoteTable: NSViewRepresentable {
             tableView.reloadData()
             synchronizeSelection(in: tableView)
             fulfillScrollRequest(in: tableView, scrollView: scrollView)
+
+            // reloadData() updates AppKit's row/cell accessibility tree, but it
+            // does not reliably invalidate the enclosing clip view when focus
+            // moves to the editor in the same run-loop turn. The populated row
+            // then remains visually blank until the window is resized. Perform
+            // the layout/display invalidation that a resize would trigger.
+            DispatchQueue.main.async { [weak self, weak tableView, weak scrollView] in
+                guard let self, let tableView, let scrollView else { return }
+                // Focus has finished moving by this turn. Rebuild the native row
+                // views now, rather than leaving the correctly-populated but
+                // unpainted views created during the focus transition.
+                tableView.reloadData()
+                self.synchronizeSelection(in: tableView)
+                tableView.needsLayout = true
+                scrollView.needsLayout = true
+                let displayRoot = scrollView.window?.contentView ?? scrollView
+                displayRoot.needsLayout = true
+                displayRoot.layoutSubtreeIfNeeded()
+                displayRoot.setNeedsDisplay(displayRoot.bounds)
+                scrollView.window?.displayIfNeeded()
+            }
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { parent.results.count }
@@ -219,7 +245,8 @@ private struct NativeNoteTable: NSViewRepresentable {
         }
 
         func tableViewColumnDidResize(_ notification: Notification) {
-            guard !isSynchronizingColumns,
+            guard isTrackingHeader,
+                  !isSynchronizingColumns,
                   let tableView = notification.object as? NSTableView else { return }
             for tableColumn in tableView.tableColumns {
                 guard let column = NoteListColumn(rawValue: tableColumn.identifier.rawValue) else { continue }
@@ -235,10 +262,13 @@ private struct NativeNoteTable: NSViewRepresentable {
         private func configure(_ cell: NoteListCellView, column: NoteListColumn, result: SearchResult) {
             switch column {
             case .title:
+                let titleFont = NSFont.systemFont(ofSize: parent.fontSize)
+                cell.label.font = titleFont
+                cell.label.textColor = .labelColor
                 let title = NSMutableAttributedString(
                     string: result.note.title,
                     attributes: [
-                        .font: NSFont.systemFont(ofSize: parent.fontSize),
+                        .font: titleFont,
                         .foregroundColor: NSColor.labelColor,
                     ]
                 )
@@ -282,7 +312,7 @@ private struct NativeNoteTable: NSViewRepresentable {
                 calendar: parent.calendar,
                 timeZone: parent.timeZone
             )
-            label.font = .systemFont(ofSize: max(10, parent.fontSize - 1))
+            label.font = .systemFont(ofSize: parent.fontSize)
             label.textColor = .secondaryLabelColor
         }
 
@@ -491,6 +521,27 @@ private final class NoteListNativeTableView: NSTableView {
     var contextMenuProvider: ((Int) -> NSMenu?)?
     var willOpenContextMenu: ((Int) -> Void)?
 
+    override func drawGrid(inClipRect clipRect: NSRect) {
+        guard numberOfRows > 0 else { return }
+        var populatedRowsRect = clipRect
+        let rowsMaxY = rect(ofRow: numberOfRows - 1).maxY
+        populatedRowsRect.size.height = min(clipRect.maxY, rowsMaxY) - clipRect.minY
+        guard populatedRowsRect.height > 0 else { return }
+        super.drawGrid(inClipRect: populatedRowsRect)
+
+        let finalSeparator = NSRect(
+            x: clipRect.minX,
+            y: rowsMaxY - 1,
+            width: clipRect.width,
+            height: 1
+        )
+        guard finalSeparator.intersects(clipRect) else { return }
+        backgroundColor.setFill()
+        finalSeparator.fill()
+        gridColor.setFill()
+        finalSeparator.fill()
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
@@ -513,7 +564,7 @@ private final class NoteListTableHeaderView: NSTableHeaderView {
     }
 }
 
-private final class NoteListCellView: NSTableCellView {
+final class NoteListCellView: NSTableCellView {
     let label = NSTextField(labelWithString: "")
 
     init(identifier: NSUserInterfaceItemIdentifier, leadingInset: CGFloat) {
@@ -535,7 +586,7 @@ private final class NoteListCellView: NSTableCellView {
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leadingInset),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -2),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         textField = label
     }

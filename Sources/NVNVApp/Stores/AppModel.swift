@@ -57,6 +57,7 @@ final class AppModel {
 
     private let logger = Logger(subsystem: "app.nvnv", category: "library")
     private let scanner = LibraryScanner()
+    private let userDefaults: UserDefaults
     private var repository: FileRepository?
     private var cache: SQLiteCache?
     private var journal: RecoveryJournal?
@@ -97,6 +98,7 @@ final class AppModel {
     private var navigationHistory: [(String, Set<UUID>)] = []
 
     init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
         isRestoringLibrary = userDefaults.string(forKey: "lastLibraryPath") != nil
     }
 
@@ -166,7 +168,7 @@ final class AppModel {
             isRestoringLibrary = false
             return
         }
-        guard let path = UserDefaults.standard.string(forKey: "lastLibraryPath") else {
+        guard let path = userDefaults.string(forKey: "lastLibraryPath") else {
             isRestoringLibrary = false
             return
         }
@@ -254,7 +256,7 @@ final class AppModel {
         listScrollRequest = nil
         errorMessage = nil
         transientMessage = nil
-        UserDefaults.standard.removeObject(forKey: "lastLibraryPath")
+        userDefaults.removeObject(forKey: "lastLibraryPath")
     }
 
     func confirmAndForgetLibrary() async {
@@ -282,7 +284,7 @@ final class AppModel {
             "noteListModifiedDateColumnWidth",
             "noteListCreatedDateColumnWidth",
         ] {
-            UserDefaults.standard.removeObject(forKey: key)
+            userDefaults.removeObject(forKey: key)
         }
         settingsTask?.cancel()
         do {
@@ -367,7 +369,7 @@ final class AppModel {
             watcher = DirectoryWatcher(url: selectedURL) { [weak self] change in
                 Task { @MainActor in await self?.reconcileExternalChanges(change) }
             }
-            UserDefaults.standard.set(selectedURL.path, forKey: "lastLibraryPath")
+            userDefaults.set(selectedURL.path, forKey: "lastLibraryPath")
             if !writable { errorMessage = NVNVError.locked.localizedDescription }
             scrollToTopAfterNextSearch = true
             refreshSearch()
@@ -836,6 +838,7 @@ final class AppModel {
         let generation = searchGeneration
         let query = SearchQuery(query)
         let cachedDocuments = searchDocuments
+        let documentsGeneration = searchDocumentsGeneration
         let staleNotes = notes.filter { staleSearchDocumentIDs.contains($0.id) }
         let normalizedTerms = query.terms.map { TextNormalizer.normalize($0.value) }
         let conservativeIDs = Set(notes.compactMap { note in
@@ -910,6 +913,13 @@ final class AppModel {
                 worker.cancel()
             }
             guard !Task.isCancelled, let self, self.searchGeneration == generation else { return }
+            // The worker searched an immutable document snapshot. A note save or
+            // external reconciliation can replace documents without changing the
+            // query generation; never publish that older snapshot as current.
+            guard self.searchDocumentsGeneration == documentsGeneration else {
+                self.refreshSearch()
+                return
+            }
             for document in output.refreshed {
                 if self.notes.first(where: { $0.id == document.id })?.revision == document.note.revision {
                     self.searchDocuments[document.id] = document
@@ -923,11 +933,17 @@ final class AppModel {
     }
 
     private func applySearchResults(_ found: [SearchResult], query: SearchQuery, sort: NoteSort) {
-        results = found
-        let available = Set(found.map(\.id))
+        let resolved = selectionKind == .explicit
+            ? Self.resultsPreservingMatchingSelection(
+                found: found, selection: selection, documents: searchDocuments,
+                query: query, sort: sort
+            )
+            : found
+        results = resolved
+        let available = Set(resolved.map(\.id))
         if selectionKind == .explicit {
             selection.formIntersection(available)
-        } else if let automatic = SearchService.automaticMatch(query: query.rawValue, results: found, sort: sort) {
+        } else if let automatic = SearchService.automaticMatch(query: query.rawValue, results: resolved, sort: sort) {
             selection = [automatic]
             selectionKind = .automatic
         } else {
@@ -937,10 +953,31 @@ final class AppModel {
         populateSelectedHighlightRanges()
         if scrollToTopAfterNextSearch {
             scrollToTopAfterNextSearch = false
-            if let first = found.first {
+            if let first = resolved.first {
                 requestListScroll(to: first.id, placement: .top)
             }
         }
+    }
+
+    /// SQLite narrows broad searches to a candidate superset, but its disposable
+    /// index can briefly lag a newly-created or externally-reconciled note. The
+    /// open note's in-memory document is authoritative, so keep it in the list
+    /// whenever it still satisfies the current query.
+    static func resultsPreservingMatchingSelection(
+        found: [SearchResult], selection: Set<UUID>,
+        documents: [UUID: SearchDocument], query: SearchQuery, sort: NoteSort
+    ) -> [SearchResult] {
+        var resolved = found
+        let available = Set(found.map(\.id))
+        var insertedMatch = false
+        for id in selection.subtracting(available) {
+            guard let document = documents[id],
+                  let result = SearchService.result(for: document, query: query) else { continue }
+            resolved.append(result)
+            insertedMatch = true
+        }
+        guard insertedMatch else { return found }
+        return resolved.sorted { SearchService.compare($0.note, $1.note, sort: sort) }
     }
 
     private func populateSelectedHighlightRanges() {

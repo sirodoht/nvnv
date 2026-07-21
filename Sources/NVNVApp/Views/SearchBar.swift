@@ -51,7 +51,7 @@ struct SearchBar: View {
 /// select only the proposed part of an inline completion. The model continues
 /// to own just the text the user entered; the field editor temporarily displays
 /// the rest of the automatically selected note title.
-private struct CompletingSearchField: NSViewRepresentable {
+struct CompletingSearchField: NSViewRepresentable {
     let text: String
     let completionTitle: String?
     let placeholder: String
@@ -191,6 +191,9 @@ private struct CompletingSearchField: NSViewRepresentable {
             case #selector(NSResponder.cancelOperation(_:)):
                 completionSuppressedForText = nil
                 parent.onEscape()
+            case #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.deleteForward(_:)):
+                replacementWasDeletion = true
+                return false
             default:
                 return false
             }
