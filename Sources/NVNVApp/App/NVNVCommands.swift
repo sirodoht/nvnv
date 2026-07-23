@@ -35,6 +35,17 @@ struct NVNVCommands: Commands {
                 .keyboardShortcut("[", modifiers: .command)
             Button("Indent") { model.performEditorCommand(.indent) }
                 .keyboardShortcut("]", modifiers: .command)
+            Divider()
+            Button("Find…") { model.performEditorCommand(.find) }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(model.selection.count != 1)
+            Button("Find Next") { model.performEditorCommand(.findNext) }
+                .keyboardShortcut("g", modifiers: .command)
+                .disabled(model.selection.count != 1)
+            Button("Find Previous") { model.performEditorCommand(.findPrevious) }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(model.selection.count != 1)
+            Divider()
             Button("Open URL at Cursor") { model.performEditorCommand(.openURL) }
             if model.conflict != nil {
                 Button("Resolve Conflict…") { model.showConflictResolver() }
