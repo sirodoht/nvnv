@@ -23,7 +23,6 @@ struct NVNVCommands: Commands {
             Button("Rename Note") { model.startRename() }.keyboardShortcut("r")
                 .disabled(model.isReadOnly || model.selection.count != 1)
             Button("Move to Trash") { Task { await model.deleteSelection() } }
-                .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(model.isReadOnly || model.selection.isEmpty)
             Button("Show in Finder") { model.revealSelectedNote() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])

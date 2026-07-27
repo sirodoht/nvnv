@@ -44,7 +44,6 @@ notes as you type, opens a matching note, or creates a note from a new title.
 - `⌘D` — deselect the note and restore the previous search.
 - `⌘R` — rename the selected note. Press `Return` to commit or `Escape` to cancel.
 - `⌥⌘←` — return to the previous note/search context.
-- `⌘Delete` — move the selected notes to Trash.
 - `⇧⌘R` — show the selected note in Finder.
 - `⌘[` / `⌘]` — outdent/indent.
 - `Tab` / `Shift-Tab` — indent/outdent in the editor when “Tab indents text” is enabled.
