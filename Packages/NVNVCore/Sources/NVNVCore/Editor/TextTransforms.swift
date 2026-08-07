@@ -1,6 +1,35 @@
 import Foundation
 
 public enum TextTransforms {
+    public static func tabInsertion(
+        text: String, caret: Int, softTabs: Bool, tabWidth: Int
+    ) -> (range: NSRange, replacement: String) {
+        let source = text as NSString
+        let safeCaret = min(max(caret, 0), source.length)
+        guard softTabs else {
+            return (NSRange(location: safeCaret, length: 0), "\t")
+        }
+
+        let width = min(max(tabWidth, 1), 16)
+        let lineStart = source.lineRange(for: NSRange(location: safeCaret, length: 0)).location
+        let beforeCaret = source.substring(
+            with: NSRange(location: lineStart, length: safeCaret - lineStart)
+        )
+        var column = 0
+        for character in beforeCaret.utf16 {
+            if character == 9 {
+                column += width - (column % width)
+            } else {
+                column += 1
+            }
+        }
+        let count = width - (column % width)
+        return (
+            NSRange(location: safeCaret, length: 0),
+            String(repeating: " ", count: count)
+        )
+    }
+
     public static func indent(
         text: String, selection: NSRange, softTabs: Bool, tabWidth: Int
     ) -> (String, NSRange) {
@@ -9,8 +38,9 @@ public enum TextTransforms {
         let touched = source.lineRange(for: selection)
         let block = source.substring(with: touched)
         let prefix = softTabs ? String(repeating: " ", count: width) : "\t"
-        let lines = block.split(separator: "\n", omittingEmptySubsequences: false)
+        let (lines, hasTrailingNewline) = indentationLines(in: block)
         let replacement = lines.map { prefix + $0 }.joined(separator: "\n")
+            + (hasTrailingNewline ? "\n" : "")
         let output = source.replacingCharacters(in: touched, with: replacement)
         let added = prefix.utf16.count * lines.count
         return (output, NSRange(location: selection.location + prefix.utf16.count, length: selection.length + max(0, added - prefix.utf16.count)))
@@ -21,20 +51,30 @@ public enum TextTransforms {
         let width = min(max(tabWidth, 1), 16)
         let touched = source.lineRange(for: selection)
         let block = source.substring(with: touched)
-        var removed = 0
-        let lines = block.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
-            var value = String(line)
-            if value.hasPrefix("\t") { value.removeFirst(); removed += 1 }
-            else {
+        let (lines, hasTrailingNewline) = indentationLines(in: block)
+        var deletions: [(location: Int, length: Int)] = []
+        var lineStart = touched.location
+        let transformedLines = lines.map { line -> String in
+            var value = line
+            let removed: Int
+            if value.hasPrefix("\t") {
+                value.removeFirst()
+                removed = 1
+            } else {
                 let spaces = min(value.prefix(while: { $0 == " " }).count, width)
                 value.removeFirst(spaces)
-                removed += spaces
+                removed = spaces
             }
+            if removed > 0 { deletions.append((lineStart, removed)) }
+            lineStart += line.utf16.count + 1
             return value
         }
-        let replacement = lines.joined(separator: "\n")
+        let replacement = transformedLines.joined(separator: "\n")
+            + (hasTrailingNewline ? "\n" : "")
         let output = source.replacingCharacters(in: touched, with: replacement)
-        return (output, NSRange(location: max(touched.location, selection.location - min(removed, selection.location - touched.location)), length: max(0, selection.length - max(0, removed - 1))))
+        let start = position(selection.location, afterDeleting: deletions)
+        let end = position(NSMaxRange(selection), afterDeleting: deletions)
+        return (output, NSRange(location: start, length: max(0, end - start)))
     }
 
     public static func newlineInsertion(text: String, caret: Int) -> (range: NSRange, replacement: String) {
@@ -73,5 +113,26 @@ public enum TextTransforms {
         let full = String(content[fullRange])
         let next = number == UInt64.max ? full : "\(number + 1). "
         return (full, next, String(content[fullRange.upperBound...]))
+    }
+
+    private static func indentationLines(in block: String) -> ([String], Bool) {
+        let hasTrailingNewline = block.hasSuffix("\n")
+        var lines = block.components(separatedBy: "\n")
+        if hasTrailingNewline { lines.removeLast() }
+        return (lines, hasTrailingNewline)
+    }
+
+    private static func position(
+        _ original: Int, afterDeleting deletions: [(location: Int, length: Int)]
+    ) -> Int {
+        var removedBeforePosition = 0
+        for deletion in deletions {
+            if original <= deletion.location { break }
+            if original < deletion.location + deletion.length {
+                return deletion.location - removedBeforePosition
+            }
+            removedBeforePosition += deletion.length
+        }
+        return original - removedBeforePosition
     }
 }

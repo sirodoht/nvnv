@@ -479,12 +479,16 @@ Pasted styled text MUST be reduced to its textual content. Pasting MUST NOT crea
 Indent and Outdent operate on every line touched by the current selection.
 
 - With soft tabs disabled, Indent inserts one tab character at each selected line start.
-- With soft tabs enabled, Indent inserts spaces to the next configured tab stop.
+- With soft tabs enabled, Indent inserts one configured tab width of spaces at each selected line start.
 - Tab width is configurable from 1 through 16 columns and defaults to 4.
 - Outdent removes one leading tab or up to one tab width of leading spaces.
 - Indent and Outdent are one undo step per invocation.
-- If the selection is a caret and Tab-to-indent is enabled, Tab performs Indent at the caret.
-- If Tab-to-indent is disabled, Tab advances focus.
+- With a caret and Tab-to-indent enabled, Tab inserts one tab at the caret or enough spaces to reach the next configured tab stop.
+- With a non-empty selection and Tab-to-indent enabled, Tab indents every touched line without replacing the selected text.
+- Shift-Tab outdents the current line or every line touched by a non-empty selection.
+- A caret remains collapsed, and line indentation preserves the selection over the same logical text.
+- A selection ending at the start of a following line does not modify that following line.
+- If Tab-to-indent is disabled, Tab and Shift-Tab move focus forward and backward.
 
 ### 9.4 New-line indentation
 

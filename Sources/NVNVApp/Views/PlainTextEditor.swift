@@ -234,11 +234,23 @@ struct PlainTextEditor: NSViewRepresentable {
                 textView.insertText(change.replacement, replacementRange: change.range)
                 return true
             }
-            if commandSelector == #selector(NSResponder.insertTab(_:)), parent.tabIndents {
-                applyIndent(textView, outdent: false)
+            if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                guard parent.tabIndents else {
+                    textView.window?.selectNextKeyView(textView)
+                    return true
+                }
+                if textView.selectedRange().length == 0 {
+                    insertTabAtCaret(in: textView)
+                } else {
+                    applyIndent(textView, outdent: false)
+                }
                 return true
             }
-            if commandSelector == #selector(NSResponder.insertBacktab(_:)), parent.tabIndents {
+            if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                guard parent.tabIndents else {
+                    textView.window?.selectPreviousKeyView(textView)
+                    return true
+                }
                 applyIndent(textView, outdent: true)
                 return true
             }
@@ -256,12 +268,23 @@ struct PlainTextEditor: NSViewRepresentable {
             }
         }
 
+        private func insertTabAtCaret(in textView: NSTextView) {
+            let change = TextTransforms.tabInsertion(
+                text: textView.string,
+                caret: textView.selectedRange().location,
+                softTabs: parent.softTabs,
+                tabWidth: parent.tabWidth
+            )
+            textView.insertText(change.replacement, replacementRange: change.range)
+        }
+
         private func applyIndent(_ textView: NSTextView, outdent: Bool) {
             let oldText = textView.string
             let oldSelection = textView.selectedRange()
             let transformed = outdent
                 ? TextTransforms.outdent(text: oldText, selection: oldSelection, tabWidth: parent.tabWidth)
                 : TextTransforms.indent(text: oldText, selection: oldSelection, softTabs: parent.softTabs, tabWidth: parent.tabWidth)
+            guard transformed.0 != oldText || transformed.1 != oldSelection else { return }
             replaceAll(textView, text: transformed.0, selection: transformed.1, inverseText: oldText, inverseSelection: oldSelection)
             textView.undoManager?.setActionName(outdent ? "Outdent" : "Indent")
         }
