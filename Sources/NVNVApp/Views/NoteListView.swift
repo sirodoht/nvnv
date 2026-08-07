@@ -20,6 +20,7 @@ struct NoteListView: View {
             columns: model.visibleNoteListColumns,
             sort: model.sort,
             scrollRequest: model.listScrollRequest,
+            renameRequest: model.renameRequest,
             duplicateTitleKeys: model.duplicateTitleKeys,
             showExcerpts: model.showExcerpts,
             fontSize: 11,
@@ -56,6 +57,7 @@ private struct NativeNoteTable: NSViewRepresentable {
     let columns: [NoteListColumn]
     let sort: NoteSort
     let scrollRequest: ListScrollRequest?
+    let renameRequest: RenameRequest?
     let duplicateTitleKeys: Set<String>
     let showExcerpts: Bool
     let fontSize: Double
@@ -85,7 +87,7 @@ private struct NativeNoteTable: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
         var parent: NativeNoteTable
 
         private weak var scrollView: NoteListScrollView?
@@ -93,6 +95,7 @@ private struct NativeNoteTable: NSViewRepresentable {
         private var isSynchronizingSelection = false
         private var isTrackingHeader = false
         private var pendingScrollRequestID: UUID?
+        private var activeRenameRequestID: UUID?
 
         init(_ parent: NativeNoteTable) {
             self.parent = parent
@@ -166,7 +169,7 @@ private struct NativeNoteTable: NSViewRepresentable {
             synchronizeColumnWidths(tableView, viewportWidth: scrollView.contentSize.width)
             synchronizeSortIndicator(in: tableView)
             tableView.rowHeight = max(16, CGFloat(parent.fontSize) + 5)
-            tableView.reloadData()
+            if tableView.editedRow < 0 { tableView.reloadData() }
             synchronizeSelection(in: tableView)
             fulfillScrollRequest(in: tableView, scrollView: scrollView)
 
@@ -180,7 +183,7 @@ private struct NativeNoteTable: NSViewRepresentable {
                 // Focus has finished moving by this turn. Rebuild the native row
                 // views now, rather than leaving the correctly-populated but
                 // unpainted views created during the focus transition.
-                tableView.reloadData()
+                if tableView.editedRow < 0 { tableView.reloadData() }
                 self.synchronizeSelection(in: tableView)
                 tableView.needsLayout = true
                 scrollView.needsLayout = true
@@ -189,10 +192,21 @@ private struct NativeNoteTable: NSViewRepresentable {
                 displayRoot.layoutSubtreeIfNeeded()
                 displayRoot.setNeedsDisplay(displayRoot.bounds)
                 scrollView.window?.displayIfNeeded()
+                self.beginRenameIfNeeded(in: tableView)
             }
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { parent.results.count }
+
+        // NSTableView only enables cell editing when its data source implements
+        // this setter. The text-field delegate below owns commit/cancel so it can
+        // preserve the note identity across an asynchronous filesystem rename.
+        func tableView(
+            _ tableView: NSTableView,
+            setObjectValue object: Any?,
+            for tableColumn: NSTableColumn?,
+            row: Int
+        ) {}
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard parent.results.indices.contains(row),
@@ -260,6 +274,10 @@ private struct NativeNoteTable: NSViewRepresentable {
         }
 
         private func configure(_ cell: NoteListCellView, column: NoteListColumn, result: SearchResult) {
+            cell.noteID = result.note.id
+            cell.column = column
+            cell.label.delegate = self
+            cell.label.isEditable = false
             switch column {
             case .title:
                 let titleFont = NSFont.systemFont(ofSize: parent.fontSize)
@@ -339,6 +357,7 @@ private struct NativeNoteTable: NSViewRepresentable {
 
         private func makeTableColumn(_ column: NoteListColumn) -> NSTableColumn {
             let tableColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.rawValue))
+            tableColumn.isEditable = column == .title
             tableColumn.headerCell = NoteListHeaderCell(
                 title: column.title,
                 leadingInset: column == .title ? 14 : 9
@@ -441,6 +460,46 @@ private struct NativeNoteTable: NSViewRepresentable {
                 }
                 self.parent.model.consumeListScrollRequest(request.id)
                 self.pendingScrollRequestID = nil
+            }
+        }
+
+        private func beginRenameIfNeeded(in tableView: NSTableView) {
+            guard let request = parent.renameRequest else {
+                activeRenameRequestID = nil
+                return
+            }
+            guard activeRenameRequestID != request.id || tableView.editedRow < 0,
+                  let row = parent.results.firstIndex(where: { $0.id == request.noteID }),
+                  let column = tableView.tableColumns.firstIndex(where: {
+                      $0.identifier.rawValue == NoteListColumn.title.rawValue
+                  }),
+                  let cell = tableView.view(atColumn: column, row: row, makeIfNecessary: true)
+                    as? NoteListCellView else { return }
+
+            activeRenameRequestID = request.id
+            tableView.scrollRowToVisible(row)
+            cell.label.isEditable = true
+            cell.label.isSelectable = true
+            cell.label.stringValue = parent.results[row].note.title
+            tableView.editColumn(column, row: row, with: nil, select: true)
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField,
+                  let cell = field.superview as? NoteListCellView,
+                  cell.column == .title,
+                  let noteID = cell.noteID,
+                  parent.renameRequest?.noteID == noteID else { return }
+
+            field.isEditable = false
+            field.isSelectable = false
+            activeRenameRequestID = nil
+            let movement = (notification.userInfo?["NSTextMovement"] as? NSNumber)?.intValue
+            if movement == NSTextMovement.cancel.rawValue {
+                parent.model.cancelRename()
+            } else {
+                let proposedTitle = field.stringValue
+                Task { await parent.model.commitRename(to: proposedTitle) }
             }
         }
 
@@ -565,7 +624,9 @@ private final class NoteListTableHeaderView: NSTableHeaderView {
 }
 
 final class NoteListCellView: NSTableCellView {
-    let label = NSTextField(labelWithString: "")
+    let label = NSTextField(frame: .zero)
+    var noteID: UUID?
+    var column: NoteListColumn?
 
     init(identifier: NSUserInterfaceItemIdentifier, leadingInset: CGFloat) {
         super.init(frame: .zero)
@@ -575,6 +636,7 @@ final class NoteListCellView: NSTableCellView {
         label.isSelectable = false
         label.drawsBackground = false
         label.isBezeled = false
+        label.isBordered = false
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.usesSingleLineMode = true

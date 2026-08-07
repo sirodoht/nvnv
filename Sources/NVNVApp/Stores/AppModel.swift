@@ -14,7 +14,9 @@ final class AppModel {
     var selection: Set<UUID> = []
     var selectionKind: SelectionKind = .none
     var searchText = "" {
-        didSet { if !isRenaming { query = searchText } }
+        didSet {
+            if !isShowingSelectedNoteTitle, query != searchText { query = searchText }
+        }
     }
     private(set) var query = "" {
         didSet { refreshSearch() }
@@ -30,9 +32,11 @@ final class AppModel {
     }
     var isConflictPresented = false
     var isRenaming = false
+    private(set) var isShowingSelectedNoteTitle = false
     var focusSearchGeneration = 0
     var editorFocusRequest: EditorFocusRequest?
     var listScrollRequest: ListScrollRequest?
+    var renameRequest: RenameRequest?
     var dividerFraction = 0.36 { didSet { persistSettingsSoon() } }
     var showTitleColumn = true { didSet { persistSettingsSoon() } }
     var showModifiedDate = true { didSet { persistSettingsSoon() } }
@@ -90,8 +94,6 @@ final class AppModel {
     private var pendingLocalWriteHashes: [UUID: Set<String>] = [:]
     private var queuedConflicts: [UUID: Conflict] = [:]
     private var queuedConflictOrder: [UUID] = []
-    private var renameOriginalQuery = ""
-    private var priorExplicitQuery: String?
     private var settingsTask: Task<Void, Never>?
     private var pendingListResort = false
     private var scrollToTopAfterNextSearch = false
@@ -243,7 +245,6 @@ final class AppModel {
         journalOperationIDs = [:]
         duplicateTitleKeys = []
         navigationHistory = []
-        priorExplicitQuery = nil
         scanIssues = []
         queuedConflicts = [:]
         queuedConflictOrder = []
@@ -252,8 +253,10 @@ final class AppModel {
         isReadOnly = false
         isIndexing = false
         isRenaming = false
+        isShowingSelectedNoteTitle = false
         editorFocusRequest = nil
         listScrollRequest = nil
+        renameRequest = nil
         errorMessage = nil
         transientMessage = nil
         userDefaults.removeObject(forKey: "lastLibraryPath")
@@ -274,6 +277,8 @@ final class AppModel {
         guard let settingsRepository else { return }
         let defaults = LibrarySettings()
         apply(defaults)
+        cancelRename()
+        isShowingSelectedNoteTitle = false
         searchText = defaults.query
         query = defaults.query
         selection = defaults.selectedNoteIDs
@@ -346,10 +351,11 @@ final class AppModel {
             self.scanIssues = scan.issues
             selection = []
             selectionKind = .none
+            isShowingSelectedNoteTitle = false
+            cancelRename()
             searchText = ""
             query = ""
             navigationHistory = []
-            priorExplicitQuery = nil
             listScrollRequest = nil
             if writable, let cache {
                 do {
@@ -381,10 +387,10 @@ final class AppModel {
     func select(_ ids: Set<UUID>, explicitly: Bool = true) {
         if explicitly, ids != selection {
             navigationHistory.append((query, selection))
-            priorExplicitQuery = query
         }
         selection = ids.intersection(Set(results.map(\.id)))
         selectionKind = selection.isEmpty ? .none : (explicitly ? .explicit : .automatic)
+        if explicitly { synchronizeSelectedTitlePresentation() }
         populateSelectedHighlightRanges()
     }
 
@@ -398,14 +404,14 @@ final class AppModel {
     }
 
     func userEnteredSearchText(_ value: String) {
-        if !isRenaming, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        isShowingSelectedNoteTitle = false
+        if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             selectionKind = .none
         }
         searchText = value
     }
 
     func submitSearch() async {
-        if isRenaming { await commitRename(); return }
         let parsed = SearchQuery(query)
         let explicitID = selectionKind == .explicit ? selection.first : nil
         let validExplicitID = explicitID.flatMap { id in
@@ -425,19 +431,18 @@ final class AppModel {
     }
 
     func clearOrCancel() {
-        if isRenaming {
-            isRenaming = false
-            searchText = renameOriginalQuery
-            query = renameOriginalQuery
-        } else {
-            searchText = ""
+        if isShowingSelectedNoteTitle {
+            selection = []
+            selectionKind = .none
+            isShowingSelectedNoteTitle = false
         }
+        searchText = ""
     }
 
     func deselect() {
         selection = []
         selectionKind = .none
-        if let priorExplicitQuery { searchText = priorExplicitQuery }
+        restoreSearchTextAfterSelection()
     }
 
     func focusSearch() {
@@ -456,11 +461,15 @@ final class AppModel {
     }
 
     func startRename() {
-        guard !isReadOnly, let note = selectedNote else { return }
-        renameOriginalQuery = query
+        guard !isReadOnly, !isRenaming, let note = selectedNote else { return }
+        if !showTitleColumn { setNoteListColumn(.title, visible: true) }
         isRenaming = true
-        searchText = note.title
-        focusSearch()
+        renameRequest = RenameRequest(noteID: note.id)
+    }
+
+    func cancelRename() {
+        isRenaming = false
+        renameRequest = nil
     }
 
     func updateBody(_ body: String) {
@@ -520,6 +529,8 @@ final class AppModel {
             } catch { errorMessage = error.localizedDescription }
         }
         selection = []
+        selectionKind = .none
+        restoreSearchTextAfterSelection()
         recomputeDuplicateTitleKeys()
         refreshSearch()
     }
@@ -568,9 +579,11 @@ final class AppModel {
         while let previous = navigationHistory.popLast() {
             let valid = previous.1.intersection(Set(notes.map(\.id)))
             if !valid.isEmpty || previous.0 != query {
+                isShowingSelectedNoteTitle = false
                 searchText = previous.0
                 selection = valid
                 selectionKind = valid.isEmpty ? .none : .explicit
+                synchronizeSelectedTitlePresentation()
                 return
             }
         }
@@ -767,7 +780,7 @@ final class AppModel {
             let previousQuery = query
             let previousSelection = selection
             navigationHistory.append((previousQuery, previousSelection))
-            priorExplicitQuery = previousQuery
+            isShowingSelectedNoteTitle = true
             searchText = note.title
             insertResultForCurrentQuery(note)
             selection = [note.id]
@@ -789,18 +802,27 @@ final class AppModel {
         listScrollRequest = ListScrollRequest(noteID: noteID, placement: placement)
     }
 
-    private func commitRename() async {
-        guard let libraryURL, let repository, let note = selectedNote,
+    func commitRename(to proposedTitle: String) async {
+        guard isRenaming, let request = renameRequest,
+              let libraryURL, let repository,
+              let note = notes.first(where: { $0.id == request.noteID }),
               let index = notes.firstIndex(where: { $0.id == note.id }) else { return }
         do {
-            let stem = try FilenamePolicy.sanitizedStem(searchText)
+            let stem = try FilenamePolicy.sanitizedStem(proposedTitle)
             let ext = URL(fileURLWithPath: note.filename).pathExtension
             let filename = FilenamePolicy.availableFilename(
                 stem: stem, extension: ext, in: libraryURL,
                 excluding: libraryURL.appendingPathComponent(note.filename)
             )
             let finalTitle = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent
-            guard confirmMaterialTitleChange(input: searchText, final: finalTitle) else { return }
+            guard confirmMaterialTitleChange(input: proposedTitle, final: finalTitle) else {
+                cancelRename()
+                return
+            }
+            guard finalTitle != note.title else {
+                cancelRename()
+                return
+            }
             _ = try await repository.rename(note: note, to: filename)
             notes[index].filename = filename
             notes[index].title = finalTitle
@@ -812,11 +834,28 @@ final class AppModel {
             staleSearchDocumentIDs.remove(note.id)
             recomputeDuplicateTitleKeys()
             scheduleCacheUpsert(notes[index])
-            isRenaming = false
-            searchText = renameOriginalQuery
-            query = renameOriginalQuery
+            cancelRename()
+            synchronizeSelectedTitlePresentation()
             refreshSearch()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            cancelRename()
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func synchronizeSelectedTitlePresentation() {
+        guard selectionKind == .explicit, let note = selectedNote else {
+            restoreSearchTextAfterSelection()
+            return
+        }
+        isShowingSelectedNoteTitle = true
+        if searchText != note.title { searchText = note.title }
+    }
+
+    private func restoreSearchTextAfterSelection() {
+        guard isShowingSelectedNoteTitle else { return }
+        isShowingSelectedNoteTitle = false
+        if searchText != query { searchText = query }
     }
 
     private func confirmMaterialTitleChange(input: String, final: String) -> Bool {
@@ -949,6 +988,7 @@ final class AppModel {
             selection = []
             selectionKind = .none
         }
+        synchronizeSelectedTitlePresentation()
         populateSelectedHighlightRanges()
         if scrollToTopAfterNextSearch {
             scrollToTopAfterNextSearch = false
@@ -1658,6 +1698,11 @@ struct ListScrollRequest: Equatable {
     let id = UUID()
     let noteID: UUID
     let placement: ListScrollPlacement
+}
+
+struct RenameRequest: Equatable {
+    let id = UUID()
+    let noteID: UUID
 }
 
 enum ListScrollPlacement: Equatable {

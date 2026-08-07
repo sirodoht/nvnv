@@ -35,6 +35,55 @@ struct AppModelConflictTests {
         await writer.forgetLibrary()
     }
 
+    @Test func explicitSelectionShowsItsTitleWithoutReplacingTheSearchQuery() async throws {
+        let root = try makeLibrary(["A.txt": "alpha", "B.txt": "beta"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        model.userEnteredSearchText("alpha")
+        try await Task.sleep(for: .milliseconds(150))
+        let note = try #require(model.notes.first { $0.filename == "A.txt" })
+
+        model.select([note.id])
+
+        #expect(model.searchText == "A")
+        #expect(model.query == "alpha")
+        #expect(model.isShowingSelectedNoteTitle)
+
+        model.deselect()
+
+        #expect(model.searchText == "alpha")
+        #expect(model.query == "alpha")
+        #expect(!model.isShowingSelectedNoteTitle)
+        await model.forgetLibrary()
+    }
+
+    @Test func renameUsesAListRequestAndKeepsTheSearchQuery() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await Task.sleep(for: .milliseconds(150))
+        let note = try #require(model.notes.first)
+        model.select([note.id])
+
+        model.startRename()
+
+        #expect(model.renameRequest?.noteID == note.id)
+        #expect(model.isRenaming)
+        #expect(model.searchText == "A")
+        #expect(model.query.isEmpty)
+
+        await model.commitRename(to: "Renamed")
+
+        #expect(model.renameRequest == nil)
+        #expect(!model.isRenaming)
+        #expect(model.searchText == "Renamed")
+        #expect(model.query.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Renamed.txt").path))
+        await model.forgetLibrary()
+    }
+
     @Test func libraryPathUsesInjectedPreferencesForSaveRestoreAndForget() async throws {
         let root = try makeLibrary(["A.txt": "alpha"])
         defer { try? FileManager.default.removeItem(at: root) }

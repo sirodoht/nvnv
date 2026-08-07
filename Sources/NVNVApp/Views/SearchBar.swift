@@ -7,13 +7,13 @@ struct SearchBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: model.isRenaming ? "pencil" : "magnifyingglass")
+            Image(systemName: model.isShowingSelectedNoteTitle ? "pencil" : "magnifyingglass")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             CompletingSearchField(
                 text: model.searchText,
                 completionTitle: model.selectionKind == .automatic ? model.selectedNote?.title : nil,
-                placeholder: model.isRenaming ? "Rename Note" : "Search or Create",
+                placeholder: "Search or Create",
                 focusGeneration: model.focusSearchGeneration,
                 onChange: { model.userEnteredSearchText($0) },
                 onSubmit: { Task { await model.submitSearch() } },
@@ -29,7 +29,7 @@ struct SearchBar: View {
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-                .help(model.isRenaming ? "Cancel Rename" : "Clear Search")
+                .help("Clear Search")
             }
         }
         .padding(.horizontal, 8)
