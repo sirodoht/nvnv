@@ -23,6 +23,26 @@ final class SessionTextView: NSTextView {
     var sessionUndoManager: UndoManager?
     override var undoManager: UndoManager? { sessionUndoManager ?? super.undoManager }
 
+    private let supportedURLDetector = SupportedURLDetector()
+
+    func refreshDetectedLinks() {
+        guard let supportedURLDetector, let storage = textStorage else { return }
+        let fullRange = NSRange(location: 0, length: (storage.string as NSString).length)
+        let matches = supportedURLDetector.matches(in: storage.string)
+
+        storage.beginEditing()
+        storage.removeAttribute(.link, range: fullRange)
+        for match in matches {
+            storage.addAttribute(.link, value: match.url, range: match.range)
+        }
+        storage.endEditing()
+    }
+
+    override func didChangeText() {
+        refreshDetectedLinks()
+        super.didChangeText()
+    }
+
     @IBAction func undo(_ sender: Any?) {
         guard isEditable else { return }
         undoManager?.undo()
@@ -83,7 +103,7 @@ struct PlainTextEditor: NSViewRepresentable {
         text.isRichText = false
         text.importsGraphics = false
         text.allowsUndo = true
-        text.isAutomaticLinkDetectionEnabled = true
+        text.isAutomaticLinkDetectionEnabled = false
         text.usesFindPanel = true
         text.isIncrementalSearchingEnabled = true
         text.delegate = context.coordinator
@@ -110,7 +130,7 @@ struct PlainTextEditor: NSViewRepresentable {
         if text.string != note.body {
             coordinator.pushingState = true
             text.string = note.body
-            coordinator.detectLinks(in: text)
+            text.refreshDetectedLinks()
             text.setSelectedRange(note.clampedSelection)
             coordinator.pushingState = false
         }
@@ -151,7 +171,6 @@ struct PlainTextEditor: NSViewRepresentable {
         var lastCommandGeneration: Int
         var lastMatchRanges: [NSRange]?
         var lastHighlightedRevision = -1
-        private let supportedURLDetector = SupportedURLDetector()
         private let linkDetector = try? NSDataDetector(
             types: NSTextCheckingResult.CheckingType.link.rawValue
         )
@@ -208,19 +227,6 @@ struct PlainTextEditor: NSViewRepresentable {
             parent.onEditingEnded()
         }
 
-        func detectLinks(in textView: NSTextView) {
-            guard let supportedURLDetector, let storage = textView.textStorage else { return }
-            let fullRange = NSRange(location: 0, length: (storage.string as NSString).length)
-            let matches = supportedURLDetector.matches(in: storage.string)
-
-            storage.beginEditing()
-            storage.removeAttribute(.link, range: fullRange)
-            for match in matches {
-                storage.addAttribute(.link, value: match.url, range: match.range)
-            }
-            storage.endEditing()
-        }
-
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard parent.editable else { return false }
             if commandSelector == #selector(NSResponder.insertNewline(_:)), textView.selectedRange().length == 0 {
@@ -271,6 +277,7 @@ struct PlainTextEditor: NSViewRepresentable {
             }
             pushingState = true
             textView.string = text
+            (textView as? SessionTextView)?.refreshDetectedLinks()
             textView.setSelectedRange(selection)
             pushingState = false
             parent.onChange(text)
