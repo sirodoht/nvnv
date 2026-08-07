@@ -50,12 +50,77 @@ struct AppModelConflictTests {
         #expect(model.query == "alpha")
         #expect(model.isShowingSelectedNoteTitle)
 
-        model.deselect()
+        model.returnToSearch()
 
         #expect(model.searchText == "alpha")
         #expect(model.query == "alpha")
         #expect(!model.isShowingSelectedNoteTitle)
         await model.forgetLibrary()
+    }
+
+    @Test func returnToSearchRestoresTheQueryAndIssuesNvALTNavigationRequests() async throws {
+        let root = try makeLibrary(["A.txt": "alpha", "B.txt": "beta"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        model.userEnteredSearchText("alpha")
+        try await Task.sleep(for: .milliseconds(150))
+        let note = try #require(model.notes.first { $0.filename == "A.txt" })
+        model.select([note.id])
+        #expect(model.focusSelectedNoteEditor())
+        model.startRename()
+
+        model.returnToSearch()
+
+        #expect(model.selection.isEmpty)
+        #expect(model.selectionKind == .none)
+        #expect(model.searchText == "alpha")
+        #expect(model.query == "alpha")
+        #expect(!model.isShowingSelectedNoteTitle)
+        #expect(!model.isRenaming)
+        #expect(model.renameRequest == nil)
+        #expect(model.focusRequest?.destination == .search(.collapseSelectionToEnd))
+        #expect(model.listScrollRequest?.target == .top)
+        await model.forgetLibrary()
+    }
+
+    @Test func deliberateDeselectionSurvivesRefreshUntilTheQueryChanges() async throws {
+        let root = try makeLibrary(["hard tech map.txt": "internet"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        model.userEnteredSearchText("hard te")
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(model.selectionKind == .automatic)
+
+        await model.submitSearch()
+        model.returnToSearch()
+        model.sort = NoteSort(field: .title, ascending: true)
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(model.selection.isEmpty)
+        #expect(model.selectionKind == .none)
+
+        model.userEnteredSearchText("hard t")
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(model.selectionKind == .automatic)
+        #expect(model.selectedNote?.title == "hard tech map")
+        await model.forgetLibrary()
+    }
+
+    @Test func onlyTheCurrentFocusRequestCanBeConsumed() {
+        let model = makeModel()
+        model.focusSearch()
+        let staleID = model.focusRequest!.id
+        model.returnToSearch()
+        let currentID = model.focusRequest!.id
+
+        model.consumeFocusRequest(staleID)
+        #expect(model.focusRequest?.id == currentID)
+
+        model.consumeFocusRequest(currentID)
+        #expect(model.focusRequest == nil)
     }
 
     @Test func submittingAnAutomaticMatchEntersNoteMode() async throws {

@@ -41,7 +41,7 @@ notes as you type, opens a matching note, or creates a note from a new title.
 - `⌘J` / `⌘K` — select the next/previous note from anywhere.
 - `Return` — open the selected or best title match; if none matches, create a note.
 - `Escape` — clear the search or cancel a rename.
-- `⌘D` — deselect the note and restore the previous search.
+- `⌘D` — deselect the note, restore the previous search, and return focus to it.
 - `⌘R` — rename the selected note. Press `Return` to commit or `Escape` to cancel.
 - `⌥⌘←` — return to the previous note/search context.
 - `⇧⌘R` — show the selected note in Finder.

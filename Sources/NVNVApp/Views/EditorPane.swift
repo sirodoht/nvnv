@@ -23,7 +23,7 @@ struct EditorPane: View {
                     softTabs: model.softTabs,
                     tabWidth: model.tabWidth,
                     tabIndents: model.tabIndents,
-                    focusRequest: model.editorFocusRequest,
+                    focusRequest: model.focusRequest,
                     command: model.editorCommand,
                     commandGeneration: model.editorCommandGeneration,
                     undoInvalidationGeneration: model.undoInvalidationGenerations[note.id, default: 0],
@@ -32,7 +32,7 @@ struct EditorPane: View {
                     onSelectionChange: model.updateSelection,
                     onEditingEnded: model.finishEditingBurst,
                     onFocus: model.enterSelectedNoteMode,
-                    onFocusRequestHandled: model.consumeEditorFocusRequest
+                    onFocusRequestHandled: model.consumeFocusRequest
                 )
                 .id(note.id)
             }

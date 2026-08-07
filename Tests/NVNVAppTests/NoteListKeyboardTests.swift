@@ -44,7 +44,7 @@ struct NoteListKeyboardTests {
         model.select([note.id])
 
         #expect(model.focusSelectedNoteEditor())
-        #expect(model.editorFocusRequest?.noteID == note.id)
+        #expect(model.focusRequest?.destination == .editor(note.id))
         #expect(model.selectedNote?.clampedSelection == NSRange(location: 6, length: 0))
     }
 
@@ -65,14 +65,14 @@ struct NoteListKeyboardTests {
         #expect(model.isShowingSelectedNoteTitle)
         #expect(model.searchText == note.title)
         #expect(model.selectedEditorMatchRanges.isEmpty)
-        #expect(model.editorFocusRequest?.noteID == note.id)
+        #expect(model.focusRequest?.destination == .editor(note.id))
     }
 
     @Test func modelDoesNotRequestEditorFocusWithoutOneSelectedNote() {
         let model = makeModel()
 
         #expect(!model.focusSelectedNoteEditor())
-        #expect(model.editorFocusRequest == nil)
+        #expect(model.focusRequest == nil)
     }
 
     private func keyEvent(

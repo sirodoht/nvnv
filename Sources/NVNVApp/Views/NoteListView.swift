@@ -172,6 +172,7 @@ private struct NativeNoteTable: NSViewRepresentable {
             synchronizeColumnWidths(tableView, viewportWidth: scrollView.contentSize.width)
             synchronizeSortIndicator(in: tableView)
             tableView.rowHeight = max(16, CGFloat(parent.fontSize) + 5)
+            cancelRenameIfNeeded(in: tableView)
             if tableView.editedRow < 0 { tableView.reloadData() }
             synchronizeSelection(in: tableView)
             fulfillScrollRequest(in: tableView, scrollView: scrollView)
@@ -448,22 +449,47 @@ private struct NativeNoteTable: NSViewRepresentable {
 
         private func fulfillScrollRequest(in tableView: NSTableView, scrollView: NSScrollView) {
             guard let request = parent.scrollRequest,
-                  pendingScrollRequestID != request.id,
-                  let row = parent.results.firstIndex(where: { $0.id == request.noteID }) else { return }
+                  pendingScrollRequestID != request.id else { return }
             pendingScrollRequestID = request.id
             DispatchQueue.main.async { [weak self, weak tableView, weak scrollView] in
-                guard let self, let tableView, let scrollView else { return }
-                switch request.placement {
-                case .minimal:
-                    tableView.scrollRowToVisible(row)
+                guard let self, let tableView, let scrollView,
+                      self.parent.scrollRequest?.id == request.id else { return }
+                defer {
+                    self.parent.model.consumeListScrollRequest(request.id)
+                    self.pendingScrollRequestID = nil
+                }
+                switch request.target {
+                case .note(let noteID, let placement):
+                    guard let row = self.parent.results.firstIndex(where: { $0.id == noteID }) else { return }
+                    switch placement {
+                    case .minimal:
+                        tableView.scrollRowToVisible(row)
+                    case .top:
+                        let rowRect = tableView.rect(ofRow: row)
+                        scrollView.contentView.scroll(to: NSPoint(x: 0, y: rowRect.minY))
+                        scrollView.reflectScrolledClipView(scrollView.contentView)
+                    }
                 case .top:
-                    let rowRect = tableView.rect(ofRow: row)
-                    scrollView.contentView.scroll(to: NSPoint(x: 0, y: rowRect.minY))
+                    scrollView.contentView.scroll(to: .zero)
                     scrollView.reflectScrolledClipView(scrollView.contentView)
                 }
-                self.parent.model.consumeListScrollRequest(request.id)
-                self.pendingScrollRequestID = nil
             }
+        }
+
+        private func cancelRenameIfNeeded(in tableView: NSTableView) {
+            guard parent.renameRequest == nil,
+                  activeRenameRequestID != nil,
+                  tableView.editedRow >= 0 else { return }
+            if let cell = tableView.view(
+                atColumn: tableView.editedColumn,
+                row: tableView.editedRow,
+                makeIfNecessary: false
+            ) as? NoteListCellView {
+                cell.label.isEditable = false
+                cell.label.isSelectable = false
+            }
+            tableView.abortEditing()
+            activeRenameRequestID = nil
         }
 
         private func beginRenameIfNeeded(in tableView: NSTableView) {

@@ -74,7 +74,7 @@ struct PlainTextEditor: NSViewRepresentable {
     let softTabs: Bool
     let tabWidth: Int
     let tabIndents: Bool
-    let focusRequest: EditorFocusRequest?
+    let focusRequest: FocusRequest?
     let command: EditorCommand?
     let commandGeneration: Int
     let undoInvalidationGeneration: Int
@@ -142,10 +142,11 @@ struct PlainTextEditor: NSViewRepresentable {
             coordinator.lastHighlightedRevision = note.revision
         }
         if let focusRequest,
-           focusRequest.noteID == note.id,
+           case .editor(let noteID) = focusRequest.destination,
+           noteID == note.id,
            coordinator.lastFocusRequestID != focusRequest.id {
             coordinator.requestFocus(focusRequest, for: text)
-        } else if focusRequest == nil {
+        } else {
             coordinator.cancelPendingFocus()
         }
         if coordinator.lastCommandGeneration != commandGeneration {
@@ -181,7 +182,7 @@ struct PlainTextEditor: NSViewRepresentable {
             lastCommandGeneration = parent.commandGeneration
         }
 
-        func requestFocus(_ request: EditorFocusRequest, for textView: NSTextView) {
+        func requestFocus(_ request: FocusRequest, for textView: NSTextView) {
             guard pendingFocusRequestID != request.id else { return }
             pendingFocusRequestID = request.id
             attemptFocus(request, for: textView, remainingAttempts: 30)
@@ -192,7 +193,7 @@ struct PlainTextEditor: NSViewRepresentable {
         }
 
         private func attemptFocus(
-            _ request: EditorFocusRequest, for textView: NSTextView, remainingAttempts: Int
+            _ request: FocusRequest, for textView: NSTextView, remainingAttempts: Int
         ) {
             guard pendingFocusRequestID == request.id,
                   parent.focusRequest?.id == request.id else { return }

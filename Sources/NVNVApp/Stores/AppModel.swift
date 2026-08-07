@@ -33,8 +33,7 @@ final class AppModel {
     var isConflictPresented = false
     var isRenaming = false
     private(set) var isShowingSelectedNoteTitle = false
-    var focusSearchGeneration = 0
-    var editorFocusRequest: EditorFocusRequest?
+    var focusRequest: FocusRequest?
     var listScrollRequest: ListScrollRequest?
     var renameRequest: RenameRequest?
     var dividerFraction = 0.36 { didSet { persistSettingsSoon() } }
@@ -97,6 +96,7 @@ final class AppModel {
     private var settingsTask: Task<Void, Never>?
     private var pendingListResort = false
     private var scrollToTopAfterNextSearch = false
+    private var automaticSelectionSuppressedQuery: String?
     private var navigationHistory: [(String, Set<UUID>)] = []
 
     init(userDefaults: UserDefaults = .standard) {
@@ -259,7 +259,8 @@ final class AppModel {
         isIndexing = false
         isRenaming = false
         isShowingSelectedNoteTitle = false
-        editorFocusRequest = nil
+        automaticSelectionSuppressedQuery = nil
+        focusRequest = nil
         listScrollRequest = nil
         renameRequest = nil
         errorMessage = nil
@@ -284,6 +285,7 @@ final class AppModel {
         apply(defaults)
         cancelRename()
         isShowingSelectedNoteTitle = false
+        automaticSelectionSuppressedQuery = nil
         searchText = defaults.query
         query = defaults.query
         selection = defaults.selectedNoteIDs
@@ -357,6 +359,7 @@ final class AppModel {
             selection = []
             selectionKind = .none
             isShowingSelectedNoteTitle = false
+            automaticSelectionSuppressedQuery = nil
             cancelRename()
             searchText = ""
             query = ""
@@ -395,6 +398,11 @@ final class AppModel {
         }
         selection = ids.intersection(Set(results.map(\.id)))
         selectionKind = selection.isEmpty ? .none : (explicitly ? .explicit : .automatic)
+        if !selection.isEmpty {
+            automaticSelectionSuppressedQuery = nil
+        } else if explicitly {
+            automaticSelectionSuppressedQuery = query
+        }
         if explicitly { synchronizeSelectedTitlePresentation() }
         populateSelectedHighlightRanges()
     }
@@ -409,6 +417,7 @@ final class AppModel {
     }
 
     func userEnteredSearchText(_ value: String) {
+        automaticSelectionSuppressedQuery = nil
         isShowingSelectedNoteTitle = false
         if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             selectionKind = .none
@@ -436,6 +445,7 @@ final class AppModel {
     }
 
     func clearOrCancel() {
+        automaticSelectionSuppressedQuery = nil
         if isShowingSelectedNoteTitle {
             selection = []
             selectionKind = .none
@@ -444,15 +454,18 @@ final class AppModel {
         searchText = ""
     }
 
-    func deselect() {
+    func returnToSearch() {
+        cancelRename()
         selection = []
         selectionKind = .none
+        automaticSelectionSuppressedQuery = query
         restoreSearchTextAfterSelection()
+        requestListScrollToTop()
+        requestSearchFocus(selection: .collapseSelectionToEnd)
     }
 
     func focusSearch() {
-        editorFocusRequest = nil
-        focusSearchGeneration += 1
+        requestSearchFocus(selection: .selectAll)
     }
 
     @discardableResult
@@ -468,9 +481,9 @@ final class AppModel {
         select(selection, explicitly: true)
     }
 
-    func consumeEditorFocusRequest(_ id: UUID) {
-        guard editorFocusRequest?.id == id else { return }
-        editorFocusRequest = nil
+    func consumeFocusRequest(_ id: UUID) {
+        guard focusRequest?.id == id else { return }
+        focusRequest = nil
     }
 
     func consumeListScrollRequest(_ id: UUID) {
@@ -594,6 +607,7 @@ final class AppModel {
     }
 
     func navigateBack() {
+        automaticSelectionSuppressedQuery = nil
         while let previous = navigationHistory.popLast() {
             let valid = previous.1.intersection(Set(notes.map(\.id)))
             if !valid.isEmpty || previous.0 != query {
@@ -803,6 +817,7 @@ final class AppModel {
             insertResultForCurrentQuery(note)
             selection = [note.id]
             selectionKind = .explicit
+            automaticSelectionSuppressedQuery = nil
             persistSettingsSoon()
             requestListScroll(to: note.id)
             requestEditorFocus()
@@ -811,13 +826,21 @@ final class AppModel {
 
     private func requestEditorFocus() {
         guard let noteID = selection.first else { return }
-        editorFocusRequest = EditorFocusRequest(noteID: noteID)
+        focusRequest = FocusRequest(destination: .editor(noteID))
+    }
+
+    private func requestSearchFocus(selection: SearchFocusSelection) {
+        focusRequest = FocusRequest(destination: .search(selection))
     }
 
     private func requestListScroll(
         to noteID: UUID, placement: ListScrollPlacement = .top
     ) {
-        listScrollRequest = ListScrollRequest(noteID: noteID, placement: placement)
+        listScrollRequest = ListScrollRequest(target: .note(noteID, placement: placement))
+    }
+
+    private func requestListScrollToTop() {
+        listScrollRequest = ListScrollRequest(target: .top)
     }
 
     func commitRename(to proposedTitle: String) async {
@@ -999,7 +1022,8 @@ final class AppModel {
         let available = Set(resolved.map(\.id))
         if selectionKind == .explicit {
             selection.formIntersection(available)
-        } else if let automatic = SearchService.automaticMatch(query: query.rawValue, results: resolved, sort: sort) {
+        } else if automaticSelectionSuppressedQuery != query.rawValue,
+                  let automatic = SearchService.automaticMatch(query: query.rawValue, results: resolved, sort: sort) {
             selection = [automatic]
             selectionKind = .automatic
         } else {
@@ -1707,15 +1731,29 @@ enum EditorCommand {
     case openURL
 }
 
-struct EditorFocusRequest: Equatable {
+struct FocusRequest: Equatable {
     let id = UUID()
-    let noteID: UUID
+    let destination: FocusDestination
+}
+
+enum FocusDestination: Equatable {
+    case search(SearchFocusSelection)
+    case editor(UUID)
+}
+
+enum SearchFocusSelection: Equatable {
+    case selectAll
+    case collapseSelectionToEnd
 }
 
 struct ListScrollRequest: Equatable {
     let id = UUID()
-    let noteID: UUID
-    let placement: ListScrollPlacement
+    let target: ListScrollTarget
+}
+
+enum ListScrollTarget: Equatable {
+    case note(UUID, placement: ListScrollPlacement)
+    case top
 }
 
 struct RenameRequest: Equatable {

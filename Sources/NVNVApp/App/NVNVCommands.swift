@@ -18,7 +18,7 @@ struct NVNVCommands: Commands {
             Button("Focus Search") { model.focusSearch() }.keyboardShortcut("l")
             Button("Next Note") { model.moveSelection(by: 1) }.keyboardShortcut("j")
             Button("Previous Note") { model.moveSelection(by: -1) }.keyboardShortcut("k")
-            Button("Deselect Note") { model.deselect() }.keyboardShortcut("d")
+            Button("Deselect Note") { model.returnToSearch() }.keyboardShortcut("d")
             Divider()
             Button("Rename Note") { model.startRename() }.keyboardShortcut("r")
                 .disabled(model.isReadOnly || model.selection.count != 1)

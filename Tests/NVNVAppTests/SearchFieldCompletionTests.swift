@@ -63,12 +63,13 @@ struct SearchFieldCompletionTests {
             text: "degrowth ",
             completionTitle: "degrowth 234",
             placeholder: "",
-            focusGeneration: 0,
+            focusRequest: nil,
             onChange: { changedText = $0 },
             onSubmit: {},
             onMove: { _ in },
             onEscape: {},
-            onFocusChange: { _ in }
+            onFocusChange: { _ in },
+            onFocusRequestHandled: { _ in }
         )
         let coordinator = searchField.makeCoordinator()
 
@@ -111,5 +112,60 @@ struct SearchFieldCompletionTests {
 
         #expect(changedText == "degrowth")
         #expect(field.stringValue == "degrowth")
+    }
+
+    @MainActor
+    @Test func returnToSearchCollapsesASelectionAtTheUTF16End() {
+        let coordinator = makeCoordinator()
+        let editor = NSTextView()
+        editor.string = "tea 🫖"
+        editor.setSelectedRange(NSRange(location: 0, length: 3))
+
+        coordinator.applyFocusSelection(.collapseSelectionToEnd, to: editor)
+
+        #expect(editor.selectedRange() == NSRange(
+            location: (editor.string as NSString).length,
+            length: 0
+        ))
+    }
+
+    @MainActor
+    @Test func returnToSearchPreservesAnAlreadyCollapsedCaret() {
+        let coordinator = makeCoordinator()
+        let editor = NSTextView()
+        editor.string = "middle"
+        editor.setSelectedRange(NSRange(location: 2, length: 0))
+
+        coordinator.applyFocusSelection(.collapseSelectionToEnd, to: editor)
+
+        #expect(editor.selectedRange() == NSRange(location: 2, length: 0))
+    }
+
+    @MainActor
+    @Test func focusSearchStillSelectsTheWholeQuery() {
+        let coordinator = makeCoordinator()
+        let editor = NSTextView()
+        editor.string = "query"
+        editor.setSelectedRange(NSRange(location: 2, length: 0))
+
+        coordinator.applyFocusSelection(.selectAll, to: editor)
+
+        #expect(editor.selectedRange() == NSRange(location: 0, length: 5))
+    }
+
+    @MainActor
+    private func makeCoordinator() -> CompletingSearchField.Coordinator {
+        CompletingSearchField(
+            text: "",
+            completionTitle: nil,
+            placeholder: "",
+            focusRequest: nil,
+            onChange: { _ in },
+            onSubmit: {},
+            onMove: { _ in },
+            onEscape: {},
+            onFocusChange: { _ in },
+            onFocusRequestHandled: { _ in }
+        ).makeCoordinator()
     }
 }

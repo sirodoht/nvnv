@@ -16,12 +16,13 @@ struct SearchBar: View {
                     ? model.selectedNote?.title
                     : nil,
                 placeholder: "Search or Create",
-                focusGeneration: model.focusSearchGeneration,
+                focusRequest: model.focusRequest,
                 onChange: { model.userEnteredSearchText($0) },
                 onSubmit: { Task { await model.submitSearch() } },
                 onMove: { model.moveSelection(by: $0) },
                 onEscape: { model.clearOrCancel() },
-                onFocusChange: { focused = $0 }
+                onFocusChange: { focused = $0 },
+                onFocusRequestHandled: model.consumeFocusRequest
             )
             .frame(maxWidth: .infinity)
             if !model.searchText.isEmpty {
@@ -57,12 +58,13 @@ struct CompletingSearchField: NSViewRepresentable {
     let text: String
     let completionTitle: String?
     let placeholder: String
-    let focusGeneration: Int
+    let focusRequest: FocusRequest?
     let onChange: (String) -> Void
     let onSubmit: () -> Void
     let onMove: (Int) -> Void
     let onEscape: () -> Void
     let onFocusChange: (Bool) -> Void
+    let onFocusRequestHandled: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -78,10 +80,7 @@ struct CompletingSearchField: NSViewRepresentable {
         field.delegate = context.coordinator
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         context.coordinator.updateField(field, text: text, completionTitle: completionTitle)
-        context.coordinator.lastFocusGeneration = focusGeneration
-        DispatchQueue.main.async {
-            context.coordinator.focus(field, selectAll: false)
-        }
+        context.coordinator.synchronizeFocus(for: field)
         return field
     }
 
@@ -89,18 +88,14 @@ struct CompletingSearchField: NSViewRepresentable {
         context.coordinator.parent = self
         field.placeholderString = placeholder
         context.coordinator.updateField(field, text: text, completionTitle: completionTitle)
-
-        guard context.coordinator.lastFocusGeneration != focusGeneration else { return }
-        context.coordinator.lastFocusGeneration = focusGeneration
-        DispatchQueue.main.async {
-            context.coordinator.focus(field, selectAll: true)
-        }
+        context.coordinator.synchronizeFocus(for: field)
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: CompletingSearchField
-        var lastFocusGeneration: Int?
+        var lastFocusRequestID: UUID?
+        var pendingFocusRequestID: UUID?
 
         private var isApplyingPresentation = false
         private var replacementWasDeletion = false
@@ -146,11 +141,54 @@ struct CompletingSearchField: NSViewRepresentable {
             lastPresentedCompletionTitle = presentedCompletion
         }
 
-        func focus(_ field: NSTextField, selectAll: Bool) {
-            guard let window = field.window else { return }
-            window.makeFirstResponder(field)
-            guard selectAll, let editor = field.currentEditor() as? NSTextView else { return }
-            editor.selectAll(nil)
+        func synchronizeFocus(for field: NSTextField) {
+            guard let request = parent.focusRequest,
+                  case .search = request.destination,
+                  lastFocusRequestID != request.id else {
+                pendingFocusRequestID = nil
+                return
+            }
+            guard pendingFocusRequestID != request.id else { return }
+            pendingFocusRequestID = request.id
+            attemptFocus(request, for: field, remainingAttempts: 30)
+        }
+
+        private func attemptFocus(
+            _ request: FocusRequest, for field: NSTextField, remainingAttempts: Int
+        ) {
+            guard pendingFocusRequestID == request.id,
+                  parent.focusRequest?.id == request.id,
+                  case .search(let selection) = request.destination else { return }
+            if let window = field.window, window.makeFirstResponder(field) {
+                if let editor = field.currentEditor() as? NSTextView {
+                    applyFocusSelection(selection, to: editor)
+                }
+                lastFocusRequestID = request.id
+                pendingFocusRequestID = nil
+                parent.onFocusRequestHandled(request.id)
+                return
+            }
+            guard remainingAttempts > 0 else {
+                pendingFocusRequestID = nil
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(10)) { [weak self, weak field] in
+                guard let self, let field else { return }
+                self.attemptFocus(request, for: field, remainingAttempts: remainingAttempts - 1)
+            }
+        }
+
+        func applyFocusSelection(_ selection: SearchFocusSelection, to editor: NSTextView) {
+            switch selection {
+            case .selectAll:
+                editor.selectAll(nil)
+            case .collapseSelectionToEnd:
+                guard editor.selectedRange().length > 0 else { return }
+                editor.setSelectedRange(NSRange(
+                    location: (editor.string as NSString).length,
+                    length: 0
+                ))
+            }
         }
 
         func controlTextDidBeginEditing(_ notification: Notification) {

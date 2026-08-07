@@ -248,6 +248,12 @@ unrelated pre-search list offset.
 - Clearing the query shows all notes and retains the current note if it still exists.
 - Deselect Note removes the current selection and restores the exact query that existed immediately before the current note was explicitly opened.
 - If there is no stored prior query, Deselect Note leaves the current query unchanged.
+- Deselect Note focuses the search field without selecting the restored query,
+  collapses any existing field selection at the end, and scrolls the result list
+  to its top.
+- Late search results and metadata refreshes MUST NOT automatically select a note
+  after explicit deselection. Automatic selection resumes after the query changes
+  or the user explicitly opens or selects a result.
 
 ### 6.9 Fresh launch state
 
@@ -534,7 +540,7 @@ On macOS, `Primary` means Command. On other platforms it means the conventional 
 | `Return` in search | Open explicit/automatic match or create note |
 | `Up` / `Down` in search | Select previous/next result |
 | `Primary-J` / `Primary-K` | Next/previous result |
-| `Primary-D` | Deselect note and restore prior query |
+| `Primary-D` | Deselect note, restore prior query, and focus search |
 | `Primary-R` | Rename the selected note |
 | `Primary-Delete` | Delete selected note or notes |
 | `Primary-Z` / `Primary-Shift-Z` | Undo/redo in the active scope |

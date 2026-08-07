@@ -18,6 +18,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Made Command-D fully return to search by restoring focus and the prior query,
+  clearing note selection, and scrolling results to the top.
 - Fixed note-list search and display regressions.
 - Persisted resized note-list column widths across launches.
 
