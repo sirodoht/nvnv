@@ -48,6 +48,26 @@ struct NoteListKeyboardTests {
         #expect(model.selectedNote?.clampedSelection == NSRange(location: 6, length: 0))
     }
 
+    @Test func focusingAnAutomaticallySelectedNoteEntersNoteMode() {
+        let model = makeModel()
+        let note = Note(title: "hard tech map", body: "internet", filename: "hard tech map.txt")
+        let match = NSRange(location: 2, length: 2)
+        model.notes = [note]
+        model.results = [SearchResult(note: note, titleRanges: [], bodyRanges: [match])]
+        model.select([note.id], explicitly: false)
+
+        #expect(model.selectionKind == .automatic)
+        #expect(model.selectedEditorMatchRanges == [match])
+
+        #expect(model.focusSelectedNoteEditor())
+
+        #expect(model.selectionKind == .explicit)
+        #expect(model.isShowingSelectedNoteTitle)
+        #expect(model.searchText == note.title)
+        #expect(model.selectedEditorMatchRanges.isEmpty)
+        #expect(model.editorFocusRequest?.noteID == note.id)
+    }
+
     @Test func modelDoesNotRequestEditorFocusWithoutOneSelectedNote() {
         let model = makeModel()
 

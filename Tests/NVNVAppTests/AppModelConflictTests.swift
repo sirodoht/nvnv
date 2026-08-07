@@ -58,6 +58,27 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func submittingAnAutomaticMatchEntersNoteMode() async throws {
+        let root = try makeLibrary(["hard tech map.txt": "internet"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        model.userEnteredSearchText("hard te")
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(model.selectionKind == .automatic)
+        #expect(!model.selectedEditorMatchRanges.isEmpty)
+
+        await model.submitSearch()
+
+        #expect(model.selectionKind == .explicit)
+        #expect(model.isShowingSelectedNoteTitle)
+        #expect(model.searchText == "hard tech map")
+        #expect(model.query == "hard te")
+        #expect(model.selectedEditorMatchRanges.isEmpty)
+        await model.forgetLibrary()
+    }
+
     @Test func renameUsesAListRequestAndKeepsTheSearchQuery() async throws {
         let root = try makeLibrary(["A.txt": "alpha"])
         defer { try? FileManager.default.removeItem(at: root) }

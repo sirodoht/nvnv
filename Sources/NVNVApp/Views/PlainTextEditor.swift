@@ -82,6 +82,7 @@ struct PlainTextEditor: NSViewRepresentable {
     let onChange: (String) -> Void
     let onSelectionChange: (NSRange) -> Void
     let onEditingEnded: () -> Void
+    let onFocus: () -> Void
     let onFocusRequestHandled: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -225,6 +226,10 @@ struct PlainTextEditor: NSViewRepresentable {
 
         func textDidEndEditing(_ notification: Notification) {
             parent.onEditingEnded()
+        }
+
+        func textDidBeginEditing(_ notification: Notification) {
+            parent.onFocus()
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

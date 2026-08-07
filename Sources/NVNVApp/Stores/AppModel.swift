@@ -114,6 +114,11 @@ final class AppModel {
         return results.first { $0.id == id }
     }
 
+    var selectedEditorMatchRanges: [NSRange] {
+        guard highlightSearch, !isShowingSelectedNoteTitle else { return [] }
+        return selectedResult?.bodyRanges ?? []
+    }
+
     var recognizedExtensions: Set<String> {
         let parsed = extensionList.split(separator: ",").map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
@@ -421,7 +426,7 @@ final class AppModel {
             query: query, documents: Array(searchDocuments.values), sort: sort
         )
         if let id = validExplicitID ?? automaticID {
-            if selection != [id] { select([id], explicitly: true) }
+            select([id], explicitly: true)
             requestListScroll(to: id)
             requestEditorFocus()
         } else if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -453,8 +458,14 @@ final class AppModel {
     @discardableResult
     func focusSelectedNoteEditor() -> Bool {
         guard selectedNote != nil else { return false }
+        enterSelectedNoteMode()
         requestEditorFocus()
         return true
+    }
+
+    func enterSelectedNoteMode() {
+        guard selectedNote != nil else { return }
+        select(selection, explicitly: true)
     }
 
     func consumeEditorFocusRequest(_ id: UUID) {

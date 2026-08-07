@@ -134,6 +134,7 @@ struct PlainTextEditorLinkTests {
             onChange: { _ in },
             onSelectionChange: { _ in },
             onEditingEnded: {},
+            onFocus: {},
             onFocusRequestHandled: { _ in }
         )
         return PlainTextEditor.Coordinator(parent: editor)

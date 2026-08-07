@@ -12,7 +12,9 @@ struct SearchBar: View {
                 .foregroundStyle(.secondary)
             CompletingSearchField(
                 text: model.searchText,
-                completionTitle: model.selectionKind == .automatic ? model.selectedNote?.title : nil,
+                completionTitle: focused && model.selectionKind == .automatic
+                    ? model.selectedNote?.title
+                    : nil,
                 placeholder: "Search or Create",
                 focusGeneration: model.focusSearchGeneration,
                 onChange: { model.userEnteredSearchText($0) },

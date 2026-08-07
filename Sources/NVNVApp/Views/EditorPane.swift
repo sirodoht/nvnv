@@ -17,7 +17,7 @@ struct EditorPane: View {
                 PlainTextEditor(
                     note: note,
                     editable: !model.isReadOnly && model.conflict?.noteID != note.id,
-                    matchRanges: model.highlightSearch ? (model.selectedResult?.bodyRanges ?? []) : [],
+                    matchRanges: model.selectedEditorMatchRanges,
                     fontName: model.editorFontName,
                     fontSize: model.editorFontSize,
                     softTabs: model.softTabs,
@@ -31,6 +31,7 @@ struct EditorPane: View {
                     onChange: model.updateBody,
                     onSelectionChange: model.updateSelection,
                     onEditingEnded: model.finishEditingBurst,
+                    onFocus: model.enterSelectedNoteMode,
                     onFocusRequestHandled: model.consumeEditorFocusRequest
                 )
                 .id(note.id)
