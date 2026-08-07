@@ -71,3 +71,4 @@ Finally, update the version text and GitHub asset URLs in `website/index.html`.
 | --- | --- | --- |
 | 1.0.0 | `nvnv-1.0.0-macos.zip` | `96a9c1647b604fb5c9f6e997f97c3e207f68a0a76e84175eac0b308d4a4bf564` |
 | 1.1.0 | `nvnv-1.1.0-macos.zip` | `bb597be36a43a5ff98aace6b99a95772a8ee9c644df66150aa867df43a69176e` |
+| 1.3.0 | `nvnv-1.3.0-macos.zip` | `b0387716de50a58b8c1e2fb57cdb44991cbcc92e9b50ae17e16a0442e3f247f4` |
