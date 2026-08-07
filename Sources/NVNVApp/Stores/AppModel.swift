@@ -450,6 +450,13 @@ final class AppModel {
         focusSearchGeneration += 1
     }
 
+    @discardableResult
+    func focusSelectedNoteEditor() -> Bool {
+        guard selectedNote != nil else { return false }
+        requestEditorFocus()
+        return true
+    }
+
     func consumeEditorFocusRequest(_ id: UUID) {
         guard editorFocusRequest?.id == id else { return }
         editorFocusRequest = nil

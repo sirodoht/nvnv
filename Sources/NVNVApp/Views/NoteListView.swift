@@ -156,6 +156,9 @@ private struct NativeNoteTable: NSViewRepresentable {
             }
             tableView.contextMenuProvider = { [weak self] row in self?.rowMenu(for: row) }
             tableView.willOpenContextMenu = { [weak self] row in self?.prepareContextSelection(row: row) }
+            tableView.onEnter = { [weak self] in
+                self?.parent.model.focusSelectedNoteEditor() ?? false
+            }
         }
 
         func synchronize(_ scrollView: NoteListScrollView) {
@@ -576,9 +579,19 @@ private final class NoteListScrollView: NSScrollView {
     }
 }
 
-private final class NoteListNativeTableView: NSTableView {
+final class NoteListNativeTableView: NSTableView {
     var contextMenuProvider: ((Int) -> NSMenu?)?
     var willOpenContextMenu: ((Int) -> Void)?
+    var onEnter: (() -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        let isEnter = event.keyCode == 36 || event.keyCode == 76
+        let hasConflictingModifier = !event.modifierFlags
+            .intersection([.command, .control, .option])
+            .isEmpty
+        if isEnter, !hasConflictingModifier, onEnter?() == true { return }
+        super.keyDown(with: event)
+    }
 
     override func drawGrid(inClipRect clipRect: NSRect) {
         guard numberOfRows > 0 else { return }
