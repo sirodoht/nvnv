@@ -19,9 +19,30 @@ final class EditorUndoRegistry {
     }
 }
 
-private final class SessionTextView: NSTextView {
+final class SessionTextView: NSTextView {
     var sessionUndoManager: UndoManager?
     override var undoManager: UndoManager? { sessionUndoManager ?? super.undoManager }
+
+    @IBAction func undo(_ sender: Any?) {
+        guard isEditable else { return }
+        undoManager?.undo()
+    }
+
+    @IBAction func redo(_ sender: Any?) {
+        guard isEditable else { return }
+        undoManager?.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(undo(_:)):
+            return isEditable && undoManager?.canUndo == true
+        case #selector(redo(_:)):
+            return isEditable && undoManager?.canRedo == true
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
 }
 
 struct PlainTextEditor: NSViewRepresentable {
