@@ -9,7 +9,7 @@ let package = Package(
         .executable(name: "nvnv-probes", targets: ["NVNVProbes"]),
     ],
     targets: [
-        .systemLibrary(name: "CSQLite", pkgConfig: "sqlite3"),
+        .systemLibrary(name: "CSQLite"),
         .target(name: "NVNVCore", dependencies: ["CSQLite"]),
         .executableTarget(name: "NVNVProbes", dependencies: ["NVNVCore"]),
         .testTarget(name: "NVNVCoreTests", dependencies: ["NVNVCore", "CSQLite"]),
