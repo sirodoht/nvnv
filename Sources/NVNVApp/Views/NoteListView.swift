@@ -606,9 +606,37 @@ private final class NoteListScrollView: NSScrollView {
 }
 
 final class NoteListNativeTableView: NSTableView {
+    struct FinalSeparatorGeometry: Equatable {
+        let mask: NSRect
+        let hairline: NSRect
+    }
+
     var contextMenuProvider: ((Int) -> NSMenu?)?
     var willOpenContextMenu: ((Int) -> Void)?
     var onEnter: (() -> Bool)?
+
+    static func finalSeparatorGeometry(
+        rowsMaxY: CGFloat, clipRect: NSRect, backingScaleFactor: CGFloat
+    ) -> FinalSeparatorGeometry? {
+        let scale = max(backingScaleFactor, 1)
+        let alignedMaxY = (rowsMaxY * scale).rounded() / scale
+        let mask = NSRect(
+            x: clipRect.minX,
+            y: alignedMaxY - 1,
+            width: clipRect.width,
+            height: 1
+        )
+        guard mask.intersects(clipRect) else { return nil }
+        return FinalSeparatorGeometry(
+            mask: mask,
+            hairline: NSRect(
+                x: clipRect.minX,
+                y: alignedMaxY - (1 / scale),
+                width: clipRect.width,
+                height: 1 / scale
+            )
+        )
+    }
 
     override func keyDown(with event: NSEvent) {
         let isEnter = event.keyCode == 36 || event.keyCode == 76
@@ -627,17 +655,16 @@ final class NoteListNativeTableView: NSTableView {
         guard populatedRowsRect.height > 0 else { return }
         super.drawGrid(inClipRect: populatedRowsRect)
 
-        let finalSeparator = NSRect(
-            x: clipRect.minX,
-            y: rowsMaxY - 1,
-            width: clipRect.width,
-            height: 1
-        )
-        guard finalSeparator.intersects(clipRect) else { return }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        guard let geometry = Self.finalSeparatorGeometry(
+            rowsMaxY: rowsMaxY,
+            clipRect: clipRect,
+            backingScaleFactor: scale
+        ) else { return }
         backgroundColor.setFill()
-        finalSeparator.fill()
+        geometry.mask.fill()
         gridColor.setFill()
-        finalSeparator.fill()
+        geometry.hairline.fill()
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

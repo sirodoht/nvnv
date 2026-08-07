@@ -80,6 +80,25 @@ struct ColumnConfigurationTests {
         #expect(abs(cell.label.frame.midY - cell.bounds.midY) < 0.001)
     }
 
+    @Test func finalNoteSeparatorIsExactlyOneDevicePixel() throws {
+        let clip = NSRect(x: 0, y: 0, width: 300, height: 200)
+
+        let retina = try #require(NoteListNativeTableView.finalSeparatorGeometry(
+            rowsMaxY: 80,
+            clipRect: clip,
+            backingScaleFactor: 2
+        ))
+        #expect(retina.mask == NSRect(x: 0, y: 79, width: 300, height: 1))
+        #expect(retina.hairline == NSRect(x: 0, y: 79.5, width: 300, height: 0.5))
+
+        let standard = try #require(NoteListNativeTableView.finalSeparatorGeometry(
+            rowsMaxY: 80,
+            clipRect: clip,
+            backingScaleFactor: 1
+        ))
+        #expect(standard.hairline == NSRect(x: 0, y: 79, width: 300, height: 1))
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-column-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
