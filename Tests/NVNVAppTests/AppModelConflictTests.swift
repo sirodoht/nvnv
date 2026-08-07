@@ -19,6 +19,22 @@ struct AppModelConflictTests {
         #expect(!model.isConflictPresented)
     }
 
+    @Test func openingLockedLibraryReadOnlyDoesNotPresentAnError() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = makeModel()
+        let reader = makeModel()
+
+        await writer.openLibrary(root, confirmedAuxiliaryCreation: true)
+        await reader.openLibrary(root, confirmedAuxiliaryCreation: true)
+
+        #expect(!writer.isReadOnly)
+        #expect(reader.isReadOnly)
+        #expect(reader.errorMessage == nil)
+        await reader.forgetLibrary()
+        await writer.forgetLibrary()
+    }
+
     @Test func libraryPathUsesInjectedPreferencesForSaveRestoreAndForget() async throws {
         let root = try makeLibrary(["A.txt": "alpha"])
         defer { try? FileManager.default.removeItem(at: root) }

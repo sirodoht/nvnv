@@ -370,7 +370,6 @@ final class AppModel {
                 Task { @MainActor in await self?.reconcileExternalChanges(change) }
             }
             userDefaults.set(selectedURL.path, forKey: "lastLibraryPath")
-            if !writable { errorMessage = NVNVError.locked.localizedDescription }
             scrollToTopAfterNextSearch = true
             refreshSearch()
             focusSearch()

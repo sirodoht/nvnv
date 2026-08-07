@@ -40,7 +40,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             SearchBar(model: model)
             if model.isReadOnly {
-                Label("Read-only — another nvnv process owns this library", systemImage: "lock.fill")
+                Text("Read-only mode. Another nvnv process current has write access.")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.orange)
                     .padding(.vertical, 2)
