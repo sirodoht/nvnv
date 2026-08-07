@@ -197,6 +197,7 @@ struct PlainTextEditor: NSViewRepresentable {
             guard pendingFocusRequestID == request.id,
                   parent.focusRequest?.id == request.id else { return }
             if let window = textView.window, window.makeFirstResponder(textView) {
+                textView.scrollRangeToVisible(textView.selectedRange())
                 lastFocusRequestID = request.id
                 pendingFocusRequestID = nil
                 parent.onFocusRequestHandled(request.id)

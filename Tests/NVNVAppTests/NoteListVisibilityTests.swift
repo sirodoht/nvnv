@@ -6,6 +6,47 @@ import Testing
 @MainActor
 @Suite("Native note list visibility", .serialized)
 struct NoteListVisibilityTests {
+    @Test func focusingALongNoteRevealsItsRememberedCursor() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nvnv-editor-cursor-visibility-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let body = (0..<200).map { "line \($0)" }.joined(separator: "\n")
+        try body.write(to: root.appendingPathComponent("Long.txt"), atomically: true, encoding: .utf8)
+
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await Task.sleep(for: .milliseconds(150))
+        let note = try #require(model.notes.first)
+        let noteIndex = try #require(model.notes.firstIndex(where: { $0.id == note.id }))
+        model.notes[noteIndex].cursorStart = (body as NSString).length
+        model.select([note.id])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 320),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        )
+        defer { window.close() }
+        let hostingView = NSHostingView(rootView: ContentView(model: model))
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        window.layoutIfNeeded()
+        try await settleUI()
+
+        let editor = try #require(firstSubview(of: SessionTextView.self, in: hostingView))
+        let scrollView = try #require(editor.enclosingScrollView)
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        #expect(editor.visibleRect.minY == 0)
+
+        #expect(model.focusSelectedNoteEditor())
+        try await settleUI()
+
+        #expect(editor.selectedRange().location == (body as NSString).length)
+        #expect(editor.visibleRect.minY > 0)
+        await model.forgetLibrary()
+    }
+
     @Test func createdExactMatchIsVisibleAfterADeepListCollapses() async throws {
         let root = try makeLibrary(noteCount: 80)
         defer { try? FileManager.default.removeItem(at: root) }
