@@ -5,6 +5,33 @@ All notable changes to nvnv are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-08-08
+
+### Added
+
+- Added in-place note renaming with Return to commit and Escape to cancel.
+- Pressing Return in the note list now focuses the selected note in the editor.
+
+### Changed
+
+- Made explicit note selection show the selected title without replacing the
+  active search query.
+- Made Command-D fully return to search by restoring focus and the prior query,
+  clearing note selection, and scrolling results to the top.
+- Improved warm startup by reconciling only changed cache records and avoiding
+  database writes when the notes library is unchanged.
+- Refined the read-only library notice and the final note-row separator.
+
+### Fixed
+
+- Routed editor undo and redo commands through the active editing session.
+- Refreshed detected links after paste, edits, indentation, undo, and redo.
+- Corrected Tab, Shift-Tab, indent, and outdent behavior for carets and
+  selections.
+- Revealed the remembered cursor position when focusing a long note.
+- Preserved native macOS elastic scrolling while keeping the first note below
+  the table header at launch and after returning to the top.
+
 ## [1.3.0] - 2026-08-07
 
 ### Added
@@ -18,8 +45,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- Made Command-D fully return to search by restoring focus and the prior query,
-  clearing note selection, and scrolling results to the top.
 - Fixed note-list search and display regressions.
 - Persisted resized note-list column widths across launches.
 
@@ -81,6 +106,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   handling.
 - Native support for Apple silicon and Intel Macs running macOS 15 or newer.
 
+[1.4.0]: https://github.com/sirodoht/nvnv/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/sirodoht/nvnv/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/sirodoht/nvnv/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/sirodoht/nvnv/compare/v1.0.0...v1.1.0
