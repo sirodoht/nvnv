@@ -76,6 +76,14 @@ struct NVNVProbes {
         }
         report("sqlite-index-build-10000", indexBuild)
 
+        let unchangedCache = try measure(iterations: 7, warmups: 1) {
+            let before = cache.databaseChangeCount
+            let unchangedReconciliation = CacheReconciliation(cached: notes, authoritative: notes)
+            try cache.reconcile(unchangedReconciliation)
+            return cache.databaseChangeCount - before
+        }
+        report("sqlite-unchanged-reconcile-10000", unchangedCache)
+
         let selective = try measure(iterations: 7, warmups: 1) {
             let ids = try cache.candidateIDs(forNormalizedTerms: ["marker9999"]) ?? []
             // Match the application's current candidate materialization path,

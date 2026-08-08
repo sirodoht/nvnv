@@ -110,6 +110,7 @@ private struct NativeNoteTable: NSViewRepresentable {
             scrollView.hasVerticalScroller = true
             scrollView.hasHorizontalScroller = false
             scrollView.autohidesScrollers = true
+            scrollView.contentView = NoteListClipView()
 
             let tableView = scrollView.noteTableView
             tableView.dataSource = self
@@ -131,6 +132,7 @@ private struct NativeNoteTable: NSViewRepresentable {
             tableView.gridStyleMask = [.solidHorizontalGridLineMask]
             tableView.gridColor = .separatorColor
             tableView.backgroundColor = .controlBackgroundColor
+            scrollView.noteHeaderView.frame.size.height = NoteListScrollView.headerHeight
             tableView.headerView = scrollView.noteHeaderView
             tableView.autoresizingMask = [.width]
 
@@ -590,18 +592,53 @@ private struct NativeNoteTable: NSViewRepresentable {
     }
 }
 
-private final class NoteListScrollView: NSScrollView {
+final class NoteListScrollView: NSScrollView {
+    static let headerHeight: CGFloat = 27
+
     let noteTableView = NoteListNativeTableView()
     let noteHeaderView = NoteListTableHeaderView()
     var onLayout: (() -> Void)?
+    private var isClipFrameUpdateScheduled = false
 
     override func layout() {
         super.layout()
-        if noteHeaderView.frame.height != 27 {
-            noteHeaderView.frame.size.height = 27
-            tile()
-        }
+        scheduleClipFrameUpdate()
         onLayout?()
+    }
+
+    private func scheduleClipFrameUpdate() {
+        guard !isClipFrameUpdateScheduled else { return }
+        isClipFrameUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isClipFrameUpdateScheduled = false
+
+            // SwiftUI's first WindowGroup layout leaves the document clip view
+            // spanning underneath the custom table header even though AppKit
+            // tiles the vertical scroller below it. Correct the clip after that
+            // layout transaction has completed so row zero is not obscured.
+            guard self.noteTableView.headerView != nil,
+                  let verticalScroller = self.verticalScroller else { return }
+            var clipFrame = self.contentView.frame
+            clipFrame.origin.y = verticalScroller.frame.minY
+            clipFrame.size.height = verticalScroller.frame.height
+            if self.contentView.frame != clipFrame {
+                self.contentView.frame = clipFrame
+            }
+        }
+    }
+}
+
+final class NoteListClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var constrained = super.constrainBoundsRect(proposedBounds)
+        if let documentView {
+            // The custom header-aware clip frame makes AppKit treat one header
+            // height above the document as scrollable. Keep row zero flush with
+            // the header while preserving AppKit's other scroll constraints.
+            constrained.origin.y = max(constrained.origin.y, documentView.frame.minY)
+        }
+        return constrained
     }
 }
 
@@ -676,7 +713,7 @@ final class NoteListNativeTableView: NSTableView {
     }
 }
 
-private final class NoteListTableHeaderView: NSTableHeaderView {
+final class NoteListTableHeaderView: NSTableHeaderView {
     var menuProvider: (() -> NSMenu?)?
     var onTrackingChanged: ((Bool) -> Void)?
 

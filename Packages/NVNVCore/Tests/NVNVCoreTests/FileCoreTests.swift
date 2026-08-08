@@ -235,6 +235,146 @@ struct FileCoreTests {
         }
     }
 
+    @Test func cacheReconciliationClassifiesIndexMetadataAndRemovalChanges() {
+        let indexed = Note(title: "Indexed", body: "old", filename: "Indexed.txt")
+        let metadata = Note(title: "Metadata", body: "same", filename: "Metadata.txt")
+        let removed = Note(title: "Removed", body: "gone", filename: "Removed.txt")
+        var changedIndexed = indexed
+        changedIndexed.body = "new"
+        var changedMetadata = metadata
+        changedMetadata.cursorStart = 2
+        let added = Note(title: "Added", body: "fresh", filename: "Added.txt")
+
+        let reconciliation = CacheReconciliation(
+            cached: [indexed, metadata, removed],
+            authoritative: [changedIndexed, changedMetadata, added]
+        )
+
+        #expect(Set(reconciliation.indexedUpserts.map(\.id)) == [indexed.id, added.id])
+        #expect(reconciliation.metadataUpserts.map(\.id) == [metadata.id])
+        #expect(reconciliation.removedIDs == [removed.id])
+    }
+
+    @Test func validCacheReconcilesDeltasAndUnchangedWarmOpenWritesNothing() throws {
+        guard SQLiteCache.runtimeSupportsFTS5Trigram() else { return }
+        try withTemporaryDirectory { root in
+            let url = root.appendingPathComponent("index.sqlite3")
+            let indexed = Note(title: "Indexed", body: "old marker", filename: "Indexed.txt")
+            let metadata = Note(title: "Metadata", body: "stable marker", filename: "Metadata.txt")
+            let removed = Note(title: "Removed", body: "gone marker", filename: "Removed.txt")
+            var cache: SQLiteCache? = try SQLiteCache(url: url)
+            try cache?.replaceAll(with: [indexed, metadata, removed])
+            #expect(try cache?.snapshot().searchIndexIsValid == true)
+            cache = nil
+
+            let reopened = try SQLiteCache(url: url)
+            // Opening probes trigram support in a TEMP table; record that
+            // connection-local baseline before checking persistent warm work.
+            let warmOpenBaseline = reopened.databaseChangeCount
+            let before = try reopened.snapshot()
+            #expect(before.searchIndexIsValid)
+            #expect(reopened.databaseChangeCount == warmOpenBaseline)
+
+            var changedIndexed = indexed
+            changedIndexed.body = "new marker"
+            var changedMetadata = metadata
+            changedMetadata.cursorStart = 3
+            let added = Note(title: "Added", body: "fresh marker", filename: "Added.txt")
+            let reconciliation = CacheReconciliation(
+                cached: before.notes,
+                authoritative: [changedIndexed, changedMetadata, added]
+            )
+            try reopened.reconcile(reconciliation)
+
+            let after = try reopened.snapshot()
+            #expect(after.searchIndexIsValid)
+            #expect(Set(after.notes.map(\.id)) == [indexed.id, metadata.id, added.id])
+            #expect(after.notes.first(where: { $0.id == metadata.id })?.cursorStart == 3)
+            #expect(try reopened.candidateIDs(forNormalizedTerms: ["old"]) == [])
+            #expect(try reopened.candidateIDs(forNormalizedTerms: ["new"]) == [indexed.id])
+            #expect(try reopened.candidateIDs(forNormalizedTerms: ["stable"]) == [metadata.id])
+            #expect(try reopened.candidateIDs(forNormalizedTerms: ["gone"]) == [])
+
+            let changesBeforeNoOp = reopened.databaseChangeCount
+            try reopened.reconcile(CacheReconciliation(cached: after.notes, authoritative: after.notes))
+            #expect(reopened.databaseChangeCount == changesBeforeNoOp)
+        }
+    }
+
+    @Test func incompleteFTSIsNeverReportedAsValid() throws {
+        guard SQLiteCache.runtimeSupportsFTS5Trigram() else { return }
+        try withTemporaryDirectory { root in
+            let url = root.appendingPathComponent("index.sqlite3")
+            var cache: SQLiteCache? = try SQLiteCache(url: url)
+            try cache?.replaceAll(with: [
+                Note(title: "One", body: "first marker", filename: "One.txt"),
+                Note(title: "Two", body: "second marker", filename: "Two.txt"),
+            ])
+            #expect(try cache?.snapshot().searchIndexIsValid == true)
+            cache = nil
+            try executeSQLite(at: url, sql: "DELETE FROM note_search WHERE rowid IN (SELECT rowid FROM note_search LIMIT 1)")
+
+            let reopened = try SQLiteCache(url: url)
+            #expect(try reopened.snapshot().searchIndexIsValid == false)
+            #expect(try reopened.candidateIDs(forNormalizedTerms: ["first"]) == nil)
+        }
+    }
+
+    @Test func normalizationSignatureMismatchDisablesFTSCandidates() throws {
+        guard SQLiteCache.runtimeSupportsFTS5Trigram() else { return }
+        try withTemporaryDirectory { root in
+            let url = root.appendingPathComponent("index.sqlite3")
+            var cache: SQLiteCache? = try SQLiteCache(url: url)
+            try cache?.replaceAll(with: [
+                Note(title: "One", body: "search marker", filename: "One.txt")
+            ])
+            cache = nil
+            try executeSQLite(
+                at: url,
+                sql: "UPDATE cache_info SET value='incompatible' WHERE key='search_index_signature'"
+            )
+
+            let reopened = try SQLiteCache(url: url)
+            #expect(try reopened.snapshot().searchIndexIsValid == false)
+            #expect(try reopened.candidateIDs(forNormalizedTerms: ["search"]) == nil)
+        }
+    }
+
+    @Test func failedReconciliationRollsBackEveryCacheChange() throws {
+        guard SQLiteCache.runtimeSupportsFTS5Trigram() else { return }
+        try withTemporaryDirectory { root in
+            let cache = try SQLiteCache(url: root.appendingPathComponent("index.sqlite3"))
+            let first = Note(title: "First", body: "first marker", filename: "First.txt")
+            let second = Note(title: "Second", body: "second marker", filename: "Second.txt")
+            try cache.replaceAll(with: [first, second])
+            var conflicting = first
+            conflicting.filename = second.filename
+            let reconciliation = CacheReconciliation(
+                cached: [first, second], authoritative: [conflicting, second]
+            )
+
+            #expect(throws: NVNVError.self) { try cache.reconcile(reconciliation) }
+
+            let snapshot = try cache.snapshot()
+            #expect(snapshot.searchIndexIsValid)
+            #expect(snapshot.notes.first(where: { $0.id == first.id })?.filename == first.filename)
+            #expect(snapshot.notes.first(where: { $0.id == second.id })?.filename == second.filename)
+            #expect(try cache.candidateIDs(forNormalizedTerms: ["first"]) == [first.id])
+            #expect(try cache.candidateIDs(forNormalizedTerms: ["second"]) == [second.id])
+        }
+    }
+
+    @Test func newerCacheSchemaIsRejectedInsteadOfDowngraded() throws {
+        try withTemporaryDirectory { root in
+            let url = root.appendingPathComponent("future.sqlite3")
+            try executeSQLite(
+                at: url,
+                sql: "CREATE TABLE schema_info(version INTEGER NOT NULL); INSERT INTO schema_info VALUES(999)"
+            )
+            #expect(throws: NVNVError.self) { try SQLiteCache(url: url) }
+        }
+    }
+
     @Test func unchangedFileReusesCachedBodyWithoutReadingOrHashing() throws {
         try withTemporaryDirectory { root in
             let file = root.appendingPathComponent("Stable.txt")
@@ -483,6 +623,20 @@ private func createVersionOneCache(at url: URL) throws {
         let message = error.map { String(cString: $0) } ?? "SQLite setup failed"
         sqlite3_free(error)
         throw NSError(domain: "FileCoreTests", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+
+private func executeSQLite(at url: URL, sql: String) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+        throw NSError(domain: "FileCoreTests", code: 3)
+    }
+    defer { sqlite3_close(database) }
+    var error: UnsafeMutablePointer<CChar>?
+    guard sqlite3_exec(database, sql, nil, nil, &error) == SQLITE_OK else {
+        let message = error.map { String(cString: $0) } ?? "SQLite statement failed"
+        sqlite3_free(error)
+        throw NSError(domain: "FileCoreTests", code: 4, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }
 

@@ -80,8 +80,8 @@ replacement, directory durability, and the OS-backed library lock.
 
 Release-mode engine benchmarks use deterministic notes with 2,048-byte varied
 ASCII bodies. Unless noted otherwise, the figures below are medians of seven
-runs after one warm-up. They were measured in July 2026 on a 10-core Apple M1
-Max MacBook Pro with 64 GB RAM, running macOS 26.5.2.
+runs after one warm-up. They were measured in August 2026 on a 10-core Apple M1
+Max MacBook Pro with 64 GB RAM, running macOS 26.6.
 
 | Workload | Result |
 | --- | ---: |
@@ -90,6 +90,7 @@ Max MacBook Pro with 64 GB RAM, running macOS 26.5.2.
 | Search 10,000 cached notes, no notes matching | 12 ms |
 | Selective FTS search across 10,000 notes, one match | 1.8 ms |
 | Update one note in SQLite and the FTS index | 12.5 ms |
+| Plan and reconcile an unchanged 10,000-note cache | 8 ms, zero writes |
 | Initial filesystem scan of 10,000 notes | 2.23 s |
 | Warm metadata scan of 10,000 unchanged notes | 438 ms |
 | Scan one externally changed file in a 10,000-note library | 16 ms |
@@ -100,9 +101,11 @@ seven-sample method above.
 
 These are core search, indexing, and filesystem measurements; they do not
 include SwiftUI list rendering or complete application-launch latency. The load
-test also identifies a current bottleneck: constructing the complete SQLite
-trigram index for 10,000 × 2 KB notes takes about 27 seconds. Cache construction
-is therefore not represented by the steady-state search figures above.
+test also measures cold cache construction: building the complete SQLite trigram
+index for 10,000 × 2 KB notes takes about 29 seconds. Missing or incompatible
+indexes are rebuilt in the background; valid warm launches use the zero-write
+reconciliation path above. Cache construction is therefore not represented by
+the steady-state search figures.
 
 Run the same benchmark locally with:
 

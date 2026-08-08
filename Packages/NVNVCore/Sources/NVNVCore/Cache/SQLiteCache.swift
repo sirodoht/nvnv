@@ -2,8 +2,12 @@ import CSQLite
 import Foundation
 
 public final class SQLiteCache: @unchecked Sendable {
+    private static let schemaVersion = 4
+    private static let searchIndexCompleteKey = "search_index_complete"
+    private static let searchIndexSignatureKey = "search_index_signature"
     private var database: OpaquePointer?
     private let lock = NSLock()
+    private var searchIndexTrusted = false
     public private(set) var fts5TrigramAvailable = false
 
     public init(url: URL, readOnly: Bool = false) throws {
@@ -38,30 +42,18 @@ public final class SQLiteCache: @unchecked Sendable {
     deinit { if let database { sqlite3_close(database) } }
 
     public func cachedNotes() throws -> [Note] {
+        try withLock { try cachedNotesUnlocked() }
+    }
+
+    public func snapshot() throws -> CacheSnapshot {
         try withLock {
-            let sql = "SELECT id,title,body,created_at,modified_at,cursor_start,cursor_length,revision,filename,last_saved_hash,line_ending,file_identity,file_size,file_mtime_seconds,file_mtime_nanoseconds,file_ctime_seconds,file_ctime_nanoseconds FROM notes ORDER BY filename"
-            let statement = try prepare(sql)
-            defer { sqlite3_finalize(statement) }
-            var notes: [Note] = []
-            while sqlite3_step(statement) == SQLITE_ROW {
-                guard let id = UUID(uuidString: text(statement, 0)) else { continue }
-                notes.append(Note(
-                    id: id, title: text(statement, 1), body: text(statement, 2),
-                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 3)),
-                    modifiedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 4)),
-                    cursorStart: Int(sqlite3_column_int64(statement, 5)),
-                    cursorLength: Int(sqlite3_column_int64(statement, 6)),
-                    revision: Int(sqlite3_column_int64(statement, 7)), filename: text(statement, 8),
-                    lastSavedHash: text(statement, 9), lineEnding: LineEnding(rawValue: text(statement, 10)) ?? .lf,
-                    fileIdentity: nullableText(statement, 11),
-                    fileSize: nullableInt64(statement, 12),
-                    fileModificationSeconds: nullableInt64(statement, 13),
-                    fileModificationNanoseconds: nullableInt64(statement, 14),
-                    fileStatusChangeSeconds: nullableInt64(statement, 15),
-                    fileStatusChangeNanoseconds: nullableInt64(statement, 16)
-                ))
-            }
-            return notes
+            let notes = try cachedNotesUnlocked()
+            let valid = (try? searchIndexIsValidUnlocked(expectedNoteCount: notes.count)) ?? false
+            searchIndexTrusted = valid
+            return CacheSnapshot(
+                notes: notes,
+                searchIndexIsValid: valid
+            )
         }
     }
 
@@ -72,7 +64,9 @@ public final class SQLiteCache: @unchecked Sendable {
                 try executeUnlocked("DELETE FROM notes")
                 if fts5TrigramAvailable { try executeUnlocked("DELETE FROM note_search") }
                 for note in notes { try upsertUnlocked(note) }
+                try markSearchIndexCompleteUnlocked()
                 try executeUnlocked("COMMIT")
+                searchIndexTrusted = fts5TrigramAvailable
             } catch {
                 try? executeUnlocked("ROLLBACK")
                 throw error
@@ -110,9 +104,34 @@ public final class SQLiteCache: @unchecked Sendable {
         }
     }
 
+    /// Reconciles the authoritative filesystem snapshot in one transaction.
+    /// Metadata-only changes deliberately avoid rewriting the FTS row.
+    public func reconcile(_ reconciliation: CacheReconciliation) throws {
+        guard !reconciliation.isEmpty else { return }
+        try withLock {
+            try executeUnlocked("BEGIN IMMEDIATE")
+            do {
+                for id in reconciliation.removedIDs { try removeUnlocked(id: id) }
+                for note in reconciliation.metadataUpserts { try updateMetadataUnlocked(note) }
+                for note in reconciliation.indexedUpserts { try upsertUnlocked(note) }
+                try executeUnlocked("COMMIT")
+            } catch {
+                try? executeUnlocked("ROLLBACK")
+                throw error
+            }
+        }
+    }
+
     public func remove(id: UUID) throws {
         try withLock {
-            try removeUnlocked(id: id)
+            try executeUnlocked("BEGIN IMMEDIATE")
+            do {
+                try removeUnlocked(id: id)
+                try executeUnlocked("COMMIT")
+            } catch {
+                try? executeUnlocked("ROLLBACK")
+                throw error
+            }
         }
     }
 
@@ -134,6 +153,7 @@ public final class SQLiteCache: @unchecked Sendable {
         let eligibleTerms = normalizedTerms.filter { !$0.isEmpty && $0.count >= 3 }
         guard fts5TrigramAvailable, !eligibleTerms.isEmpty else { return nil }
         return try withLock {
+            guard searchIndexTrusted else { return nil }
             var intersection: Set<UUID>?
             for term in eligibleTerms {
                 if isCancelled() { throw CancellationError() }
@@ -156,9 +176,21 @@ public final class SQLiteCache: @unchecked Sendable {
         return probeTrigram(database: db)
     }
 
+    /// Connection-local SQLite mutation count, primarily useful for proving
+    /// that a warm reconciliation performed no database writes.
+    public var databaseChangeCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return Int(sqlite3_total_changes(database))
+    }
+
     private func migrate() throws {
         try execute("CREATE TABLE IF NOT EXISTS schema_info(version INTEGER NOT NULL)")
         try execute("INSERT INTO schema_info(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_info)")
+        let existingVersion = try schemaVersionValue()
+        guard existingVersion <= Self.schemaVersion else {
+            throw NVNVError.cache("cache schema version \(existingVersion) is newer than supported version \(Self.schemaVersion)")
+        }
         try execute("""
             CREATE TABLE IF NOT EXISTS notes(
               id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
@@ -175,7 +207,92 @@ public final class SQLiteCache: @unchecked Sendable {
         try addColumnIfNeeded("file_mtime_nanoseconds", declaration: "INTEGER")
         try addColumnIfNeeded("file_ctime_seconds", declaration: "INTEGER")
         try addColumnIfNeeded("file_ctime_nanoseconds", declaration: "INTEGER")
-        try execute("UPDATE schema_info SET version=3")
+        try execute("CREATE TABLE IF NOT EXISTS cache_info(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        if existingVersion < Self.schemaVersion {
+            try execute("UPDATE schema_info SET version=\(Self.schemaVersion) WHERE version<>\(Self.schemaVersion)")
+        }
+    }
+
+    private func schemaVersionValue() throws -> Int {
+        let statement = try prepare("SELECT version FROM schema_info LIMIT 1")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw NVNVError.cache("cache schema version is missing")
+        }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
+    private func cachedNotesUnlocked() throws -> [Note] {
+        let sql = "SELECT id,title,body,created_at,modified_at,cursor_start,cursor_length,revision,filename,last_saved_hash,line_ending,file_identity,file_size,file_mtime_seconds,file_mtime_nanoseconds,file_ctime_seconds,file_ctime_nanoseconds FROM notes ORDER BY filename"
+        let statement = try prepare(sql)
+        defer { sqlite3_finalize(statement) }
+        var notes: [Note] = []
+        while true {
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE { break }
+            guard result == SQLITE_ROW else {
+                throw NVNVError.cache(
+                    database.map { String(cString: sqlite3_errmsg($0)) } ?? "unable to read cached notes"
+                )
+            }
+            guard let id = UUID(uuidString: text(statement, 0)) else { continue }
+            notes.append(Note(
+                id: id, title: text(statement, 1), body: text(statement, 2),
+                createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 3)),
+                modifiedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 4)),
+                cursorStart: Int(sqlite3_column_int64(statement, 5)),
+                cursorLength: Int(sqlite3_column_int64(statement, 6)),
+                revision: Int(sqlite3_column_int64(statement, 7)), filename: text(statement, 8),
+                lastSavedHash: text(statement, 9), lineEnding: LineEnding(rawValue: text(statement, 10)) ?? .lf,
+                fileIdentity: nullableText(statement, 11),
+                fileSize: nullableInt64(statement, 12),
+                fileModificationSeconds: nullableInt64(statement, 13),
+                fileModificationNanoseconds: nullableInt64(statement, 14),
+                fileStatusChangeSeconds: nullableInt64(statement, 15),
+                fileStatusChangeNanoseconds: nullableInt64(statement, 16)
+            ))
+        }
+        return notes
+    }
+
+    private func searchIndexIsValidUnlocked(expectedNoteCount: Int) throws -> Bool {
+        guard fts5TrigramAvailable,
+              try cacheInfoValueUnlocked(for: Self.searchIndexCompleteKey) == "1",
+              try cacheInfoValueUnlocked(for: Self.searchIndexSignatureKey) == searchIndexSignature else {
+            return false
+        }
+        let statement = try prepare("SELECT (SELECT COUNT(*) FROM notes), (SELECT COUNT(*) FROM note_search)")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return false }
+        return sqlite3_column_int64(statement, 0) == Int64(expectedNoteCount)
+            && sqlite3_column_int64(statement, 1) == Int64(expectedNoteCount)
+    }
+
+    private var searchIndexSignature: String {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let sqlite = String(cString: sqlite3_libversion())
+        return "nvnv-\(TextNormalizer.indexFormatVersion)|\(Locale.current.identifier)|\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)|sqlite-\(sqlite)"
+    }
+
+    private func cacheInfoValueUnlocked(for key: String) throws -> String? {
+        let statement = try prepare("SELECT value FROM cache_info WHERE key=?")
+        defer { sqlite3_finalize(statement) }
+        bind(key, to: statement, at: 1)
+        return sqlite3_step(statement) == SQLITE_ROW ? text(statement, 0) : nil
+    }
+
+    private func setCacheInfoValueUnlocked(_ value: String, for key: String) throws {
+        let statement = try prepare("INSERT INTO cache_info(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+        defer { sqlite3_finalize(statement) }
+        bind(key, to: statement, at: 1)
+        bind(value, to: statement, at: 2)
+        try stepDone(statement)
+    }
+
+    private func markSearchIndexCompleteUnlocked() throws {
+        guard fts5TrigramAvailable else { return }
+        try setCacheInfoValueUnlocked(searchIndexSignature, for: Self.searchIndexSignatureKey)
+        try setCacheInfoValueUnlocked("1", for: Self.searchIndexCompleteKey)
     }
 
     private func upsertUnlocked(_ note: Note) throws {
@@ -222,6 +339,37 @@ public final class SQLiteCache: @unchecked Sendable {
             bind(TextNormalizer.normalize(note.title), to: insert, at: 2)
             bind(TextNormalizer.normalize(note.body), to: insert, at: 3)
             try stepDone(insert)
+        }
+    }
+
+    private func updateMetadataUnlocked(_ note: Note) throws {
+        let sql = """
+            UPDATE notes SET created_at=?,modified_at=?,cursor_start=?,cursor_length=?,revision=?,
+              filename=?,last_saved_hash=?,line_ending=?,file_identity=?,file_size=?,
+              file_mtime_seconds=?,file_mtime_nanoseconds=?,file_ctime_seconds=?,file_ctime_nanoseconds=?
+            WHERE id=?
+            """
+        let statement = try prepare(sql)
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_double(statement, 1, note.createdAt.timeIntervalSince1970)
+        sqlite3_bind_double(statement, 2, note.modifiedAt.timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 3, Int64(note.cursorStart))
+        sqlite3_bind_int64(statement, 4, Int64(note.cursorLength))
+        sqlite3_bind_int64(statement, 5, Int64(note.revision))
+        bind(note.filename, to: statement, at: 6)
+        bind(note.lastSavedHash, to: statement, at: 7)
+        bind(note.lineEnding.rawValue, to: statement, at: 8)
+        if let identity = note.fileIdentity { bind(identity, to: statement, at: 9) }
+        else { sqlite3_bind_null(statement, 9) }
+        bind(note.fileSize, to: statement, at: 10)
+        bind(note.fileModificationSeconds, to: statement, at: 11)
+        bind(note.fileModificationNanoseconds, to: statement, at: 12)
+        bind(note.fileStatusChangeSeconds, to: statement, at: 13)
+        bind(note.fileStatusChangeNanoseconds, to: statement, at: 14)
+        bind(note.id.uuidString, to: statement, at: 15)
+        try stepDone(statement)
+        guard sqlite3_changes(database) == 1 else {
+            throw NVNVError.cache("metadata update referenced a missing note")
         }
     }
 

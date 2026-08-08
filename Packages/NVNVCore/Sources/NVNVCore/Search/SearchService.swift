@@ -1,6 +1,10 @@
 import Foundation
 
 public enum TextNormalizer {
+    /// Bump when indexed normalization semantics change. The cache combines this
+    /// with the active locale and runtime versions before trusting persisted FTS.
+    public static let indexFormatVersion = 1
+
     public static func normalize(_ value: String) -> String {
         if let bytes = asciiFoldedBytes(value) {
             return String(decoding: bytes, as: UTF8.self)

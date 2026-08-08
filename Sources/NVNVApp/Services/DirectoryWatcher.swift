@@ -110,6 +110,38 @@ final class DirectoryWatcher: @unchecked Sendable {
     }
 }
 
+/// Collects events while the initial authoritative scan is in progress. Any
+/// startup event becomes one full rescan, which closes the `sinceNow` gap
+/// without trying to replay an order-sensitive partial event sequence.
+final class DirectoryWatcherStartupBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var sawChange = false
+    private var handler: (@Sendable (DirectoryWatcher.Change) -> Void)?
+
+    func receive(_ change: DirectoryWatcher.Change) {
+        lock.lock()
+        if let handler {
+            lock.unlock()
+            handler(change)
+        } else {
+            sawChange = true
+            lock.unlock()
+        }
+    }
+
+    func activate(_ handler: @escaping @Sendable (DirectoryWatcher.Change) -> Void) {
+        lock.lock()
+        if sawChange {
+            // Invoke while holding the lock so later watcher events cannot be
+            // delivered ahead of this startup reconciliation request.
+            handler(.init(paths: [], requiresFullRescan: true))
+            sawChange = false
+        }
+        self.handler = handler
+        lock.unlock()
+    }
+}
+
 private final class DirectoryWatcherCallbackBox: @unchecked Sendable {
     let callback: @Sendable (DirectoryWatcher.Change) -> Void
     weak var watcher: DirectoryWatcher?

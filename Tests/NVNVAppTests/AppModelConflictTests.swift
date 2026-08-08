@@ -377,6 +377,101 @@ struct AppModelConflictTests {
         #expect(!manager.canUndo)
     }
 
+    @Test func successfulStartupRecoveryIsPersistedInTheSearchCache() async throws {
+        let root = try makeLibrary(["A.txt": "disk body"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scanned = try #require(
+            LibraryScanner().scan(directory: root, recognizedExtensions: ["txt"]).notes.first
+        )
+        let journal = try RecoveryJournal(
+            directory: root.appendingPathComponent(".nvnv/journal", isDirectory: true)
+        )
+        try await journal.record(JournalEntry(
+            noteID: scanned.id, kind: .edit, baseHash: scanned.lastSavedHash,
+            filename: scanned.filename, intendedFilename: scanned.filename,
+            body: "recovered marker", revision: 1
+        ))
+
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await waitForIndexing(model)
+
+        #expect(model.notes.first?.body == "recovered marker")
+        let recoveredID = try #require(model.notes.first?.id)
+        #expect(model.query.isEmpty)
+        #expect(model.selection.isEmpty)
+        let cache = try SQLiteCache(
+            url: root.appendingPathComponent(".nvnv/index.sqlite3"), readOnly: true
+        )
+        let snapshot = try cache.snapshot()
+        #expect(snapshot.searchIndexIsValid)
+        #expect(snapshot.notes.first?.body == "recovered marker")
+        #expect(try cache.candidateIDs(forNormalizedTerms: ["recovered"]) == [recoveredID])
+        await model.forgetLibrary()
+    }
+
+    @Test func startupRecoveryConflictKeepsDiskCacheAndSearchesAppBodyConservatively() async throws {
+        let root = try makeLibrary(["A.txt": "authoritative disk"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scanned = try #require(
+            LibraryScanner().scan(directory: root, recognizedExtensions: ["txt"]).notes.first
+        )
+        let journal = try RecoveryJournal(
+            directory: root.appendingPathComponent(".nvnv/journal", isDirectory: true)
+        )
+        try await journal.record(JournalEntry(
+            noteID: scanned.id, kind: .edit, baseHash: "different-base",
+            filename: scanned.filename, intendedFilename: scanned.filename,
+            body: "draft-only marker", revision: scanned.revision
+        ))
+
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await waitForIndexing(model)
+        let conflictedID = try #require(model.notes.first?.id)
+        #expect(model.conflict?.noteID == conflictedID)
+        #expect(model.notes.first?.body == "draft-only marker")
+
+        let cache = try SQLiteCache(
+            url: root.appendingPathComponent(".nvnv/index.sqlite3"), readOnly: true
+        )
+        let snapshot = try cache.snapshot()
+        #expect(snapshot.searchIndexIsValid)
+        #expect(snapshot.notes.first?.body == "authoritative disk")
+
+        model.userEnteredSearchText("draft-only")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(model.results.map(\.id) == [conflictedID])
+
+        await model.resolveConflictUseFile()
+        await model.forgetLibrary()
+    }
+
+    @Test func startupWatcherBufferTurnsPreActivationEventsIntoAFullRescan() {
+        let buffer = DirectoryWatcherStartupBuffer()
+        let recorder = ChangeRecorder()
+        let path = URL(fileURLWithPath: "/tmp/A.txt")
+        buffer.receive(.init(paths: [path], requiresFullRescan: false))
+
+        buffer.activate { recorder.append($0) }
+        buffer.receive(.init(paths: [path], requiresFullRescan: false))
+
+        let changes = recorder.values
+        #expect(changes.count == 2)
+        #expect(changes[0].requiresFullRescan)
+        #expect(changes[0].paths.isEmpty)
+        #expect(!changes[1].requiresFullRescan)
+        #expect(changes[1].paths == [path])
+    }
+
+    private func waitForIndexing(_ model: AppModel) async throws {
+        for _ in 0..<500 {
+            if !model.isIndexing { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        Issue.record("search cache rebuild did not finish")
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -392,5 +487,18 @@ struct AppModelConflictTests {
             try Data(body.utf8).write(to: root.appendingPathComponent(filename))
         }
         return root
+    }
+}
+
+private final class ChangeRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [DirectoryWatcher.Change] = []
+
+    var values: [DirectoryWatcher.Change] {
+        lock.withLock { storage }
+    }
+
+    func append(_ change: DirectoryWatcher.Change) {
+        lock.withLock { storage.append(change) }
     }
 }

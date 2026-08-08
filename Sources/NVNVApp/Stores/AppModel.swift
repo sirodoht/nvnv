@@ -63,6 +63,7 @@ final class AppModel {
     private let userDefaults: UserDefaults
     private var repository: FileRepository?
     private var cache: SQLiteCache?
+    private var cacheWriter: CacheWriter?
     private var journal: RecoveryJournal?
     private var settingsRepository: SettingsRepository?
     private var libraryLock: LibraryLock?
@@ -226,6 +227,7 @@ final class AppModel {
         libraryLock = nil
         repository = nil
         cache = nil
+        cacheWriter = nil
         journal = nil
         settingsRepository = nil
         isRestoringLibrary = false
@@ -325,18 +327,41 @@ final class AppModel {
             let settings = await settingsRepository.load()
             apply(settings)
 
+            let cacheURL = auxiliary.appendingPathComponent("index.sqlite3")
             var cache: SQLiteCache?
+            var cacheSnapshot = CacheSnapshot(notes: [], searchIndexIsValid: false)
             do { cache = try SQLiteCache(url: auxiliary.appendingPathComponent("index.sqlite3"), readOnly: !writable) }
             catch {
                 logger.error("Cache unavailable: \(String(describing: error), privacy: .public)")
                 if writable {
-                    let broken = auxiliary.appendingPathComponent("index.sqlite3.broken-\(Int(Date.now.timeIntervalSince1970))")
-                    try? FileManager.default.moveItem(at: auxiliary.appendingPathComponent("index.sqlite3"), to: broken)
-                    cache = try? SQLiteCache(url: auxiliary.appendingPathComponent("index.sqlite3"))
+                    quarantineCache(at: cacheURL)
+                    cache = try? SQLiteCache(url: cacheURL)
                 }
             }
-            let cached = (try? cache?.cachedNotes()) ?? []
+            var cacheReadFailed = false
+            if let openedCache = cache {
+                do {
+                    cacheSnapshot = try openedCache.snapshot()
+                } catch {
+                    logger.error("Cache contents unavailable: \(String(describing: error), privacy: .public)")
+                    cacheReadFailed = true
+                }
+            }
+            if cacheReadFailed, writable {
+                cache = nil
+                quarantineCache(at: cacheURL)
+                if let replacement = try? SQLiteCache(url: cacheURL) {
+                    cacheSnapshot = (try? replacement.snapshot())
+                        ?? CacheSnapshot(notes: [], searchIndexIsValid: false)
+                    cache = replacement
+                }
+            }
+            let cached = cacheSnapshot.notes
             let cachedByFilename = Dictionary(uniqueKeysWithValues: cached.map { ($0.filename, $0) })
+            let startupWatcherBuffer = DirectoryWatcherStartupBuffer()
+            let initialWatcher = DirectoryWatcher(url: selectedURL) { change in
+                startupWatcherBuffer.receive(change)
+            }
             let scan = try scanner.scan(directory: selectedURL, recognizedExtensions: settings.recognizedExtensions, cached: cachedByFilename)
 
             self.libraryURL = selectedURL
@@ -344,6 +369,7 @@ final class AppModel {
             self.isReadOnly = !writable
             self.repository = FileRepository(libraryURL: selectedURL)
             self.cache = cache
+            self.cacheWriter = cache.map(CacheWriter.init)
             self.settingsRepository = settingsRepository
             self.journal = writable ? try RecoveryJournal(directory: auxiliary.appendingPathComponent("journal")) : nil
             self.notes = scan.notes
@@ -365,13 +391,13 @@ final class AppModel {
             query = ""
             navigationHistory = []
             listScrollRequest = nil
-            if writable, let cache {
-                do {
-                    try cache.replaceAll(with: scan.notes)
+            let reconciliation = CacheReconciliation(cached: cached, authoritative: scan.notes)
+            if writable, cache != nil, cacheSnapshot.searchIndexIsValid, let cacheWriter {
+                cacheIndexedSearchVersions = matchingSearchIndexVersions(cached: cached, current: scan.notes)
+                if await cacheWriter.reconcile(reconciliation) {
                     cacheIndexedSearchVersions = searchIndexVersions(for: scan.notes)
-                } catch {
-                    cacheIndexedSearchVersions = [:]
-                    logger.error("Unable to refresh search cache: \(String(describing: error), privacy: .public)")
+                } else {
+                    logger.error("Unable to reconcile search cache")
                 }
             } else {
                 // A read-only cache may have been produced under an older
@@ -379,8 +405,24 @@ final class AppModel {
                 // no way to refresh it, treat every current note conservatively.
                 cacheIndexedSearchVersions = [:]
             }
-            await replayJournal()
-            watcher = DirectoryWatcher(url: selectedURL) { [weak self] change in
+            let recoveredNotes = await replayJournal()
+            if writable, cacheSnapshot.searchIndexIsValid, let cacheWriter, !recoveredNotes.isEmpty {
+                if await cacheWriter.applyChanges(upserting: recoveredNotes, removing: []) {
+                    for note in recoveredNotes where notes.contains(where: {
+                        $0.id == note.id && $0.title == note.title && $0.body == note.body
+                    }) {
+                        cacheIndexedSearchVersions[note.id] = SearchIndexVersion(note)
+                    }
+                }
+            } else if writable, !cacheSnapshot.searchIndexIsValid, let cache, let cacheWriter {
+                var authoritativeByID = Dictionary(uniqueKeysWithValues: scan.notes.map { ($0.id, $0) })
+                for note in recoveredNotes { authoritativeByID[note.id] = note }
+                scheduleCacheRebuild(
+                    Array(authoritativeByID.values), cache: cache, writer: cacheWriter
+                )
+            }
+            watcher = initialWatcher
+            startupWatcherBuffer.activate { [weak self] change in
                 Task { @MainActor in await self?.reconcileExternalChanges(change) }
             }
             userDefaults.set(selectedURL.path, forKey: "lastLibraryPath")
@@ -556,7 +598,7 @@ final class AppModel {
                 pendingLocalWriteHashes[id] = nil
                 lastJournaledRevision[id] = nil
                 journalIDs[id] = nil
-                try? cache?.remove(id: id)
+                if let cacheWriter { _ = await cacheWriter.remove(id: id) }
             } catch { errorMessage = error.localizedDescription }
         }
         selection = []
@@ -631,7 +673,7 @@ final class AppModel {
             staleSearchDocumentIDs.remove(conflict.noteID)
             baseBodies[conflict.noteID] = nil
             cacheIndexedSearchVersions[conflict.noteID] = nil
-            try? cache?.remove(id: conflict.noteID)
+            if let cacheWriter { _ = await cacheWriter.remove(id: conflict.noteID) }
             selection.remove(conflict.noteID)
             refreshSearch()
             await completeConflictResolution(conflictID: conflict.id, noteID: conflict.noteID)
@@ -720,7 +762,7 @@ final class AppModel {
                 staleSearchDocumentIDs.remove(appVersion.id)
                 baseBodies[appVersion.id] = nil
                 cacheIndexedSearchVersions[appVersion.id] = nil
-                try? cache?.remove(id: appVersion.id)
+                if let cacheWriter { _ = await cacheWriter.remove(id: appVersion.id) }
             } else {
                 notes[index].body = conflict.fileBody
                 invalidateUndoHistory(for: notes[index].id)
@@ -923,7 +965,7 @@ final class AppModel {
         let conservativeIDs = Set(notes.compactMap { note in
             cacheIndexedSearchVersions[note.id] == SearchIndexVersion(note) ? nil : note.id
         })
-        let cache = cache
+        let cache = cacheIndexedSearchVersions.isEmpty ? nil : cache
         let sort = sort
         // Capturing the result array is O(1) (copy-on-write). Materializing its
         // SearchDocuments used to happen synchronously here, in the TextField
@@ -1112,37 +1154,26 @@ final class AppModel {
     }
 
     private func scheduleCacheUpsert(_ note: Note) {
-        guard let cache else { return }
+        guard let cache, let writer = cacheWriter else { return }
         let version = SearchIndexVersion(note)
         Task { [weak self] in
-            let succeeded = await Task.detached(priority: .utility) {
-                do {
-                    try cache.upsert(note)
-                    return true
-                } catch {
-                    return false
-                }
-            }.value
-            guard succeeded, let self, self.cache === cache,
+            let succeeded = await writer.upsert(note)
+            guard succeeded, let self, self.cache === cache, self.cacheWriter === writer,
                   let current = self.notes.first(where: { $0.id == note.id }),
-                  SearchIndexVersion(current) == version else { return }
+                  SearchIndexVersion(current) == version,
+                  current.title == note.title, current.body == note.body else { return }
             self.cacheIndexedSearchVersions[note.id] = version
         }
     }
 
-    private func scheduleCacheChanges(upserting notes: [Note], removing ids: Set<UUID>) {
-        guard let cache, !notes.isEmpty || !ids.isEmpty else { return }
+    private func scheduleCacheReconciliation(_ reconciliation: CacheReconciliation) {
+        guard let cache, let writer = cacheWriter, !reconciliation.isEmpty else { return }
+        let notes = reconciliation.indexedUpserts + reconciliation.metadataUpserts
+        let ids = reconciliation.removedIDs
         let versions = searchIndexVersions(for: notes)
         Task { [weak self] in
-            let succeeded = await Task.detached(priority: .utility) {
-                do {
-                    try cache.applyChanges(upserting: notes, removing: ids)
-                    return true
-                } catch {
-                    return false
-                }
-            }.value
-            guard succeeded, let self, self.cache === cache else { return }
+            let succeeded = await writer.reconcile(reconciliation)
+            guard succeeded, let self, self.cache === cache, self.cacheWriter === writer else { return }
             for id in ids where !self.notes.contains(where: { $0.id == id }) {
                 self.cacheIndexedSearchVersions.removeValue(forKey: id)
             }
@@ -1150,7 +1181,8 @@ final class AppModel {
                 let version = versions[note.id]
                 guard let version,
                       let current = self.notes.first(where: { $0.id == note.id }),
-                      SearchIndexVersion(current) == version else { continue }
+                      SearchIndexVersion(current) == version,
+                      current.title == note.title, current.body == note.body else { continue }
                 self.cacheIndexedSearchVersions[note.id] = version
             }
         }
@@ -1158,6 +1190,37 @@ final class AppModel {
 
     private func searchIndexVersions(for notes: [Note]) -> [UUID: SearchIndexVersion] {
         Dictionary(uniqueKeysWithValues: notes.map { ($0.id, SearchIndexVersion($0)) })
+    }
+
+    private func matchingSearchIndexVersions(cached: [Note], current: [Note]) -> [UUID: SearchIndexVersion] {
+        let cachedByID = Dictionary(uniqueKeysWithValues: cached.map { ($0.id, $0) })
+        return Dictionary(uniqueKeysWithValues: current.compactMap { note in
+            guard let old = cachedByID[note.id], old.title == note.title, old.body == note.body else {
+                return nil
+            }
+            return (note.id, SearchIndexVersion(note))
+        })
+    }
+
+    private func scheduleCacheRebuild(_ authoritative: [Note], cache: SQLiteCache, writer: CacheWriter) {
+        isIndexing = true
+        let versions = searchIndexVersions(for: authoritative)
+        Task { [weak self] in
+            let succeeded = await writer.replaceAll(with: authoritative)
+            guard let self, self.cache === cache, self.cacheWriter === writer else { return }
+            self.isIndexing = false
+            guard succeeded else {
+                self.logger.error("Unable to rebuild search cache")
+                return
+            }
+            for note in authoritative {
+                guard let version = versions[note.id],
+                      let current = self.notes.first(where: { $0.id == note.id }),
+                      SearchIndexVersion(current) == version,
+                      current.title == note.title, current.body == note.body else { continue }
+                self.cacheIndexedSearchVersions[note.id] = version
+            }
+        }
     }
 
     /// Updates only search state whose authoritative note changed. Metadata-only
@@ -1191,7 +1254,11 @@ final class AppModel {
         }
 
         if !isReadOnly {
-            scheduleCacheChanges(upserting: changedNotes, removing: removedIDs)
+            let changedCachedNotes = changedNotes.compactMap { previousByID[$0.id] }
+                + removedIDs.compactMap { previousByID[$0] }
+            scheduleCacheReconciliation(CacheReconciliation(
+                cached: changedCachedNotes, authoritative: changedNotes
+            ))
         }
     }
 
@@ -1333,6 +1400,9 @@ final class AppModel {
     }
 
     func presentConflict(_ newConflict: Conflict) {
+        // The in-memory app body intentionally diverges from the disk-authoritative
+        // cache until the conflict is resolved. Never let FTS hide that version.
+        cacheIndexedSearchVersions[newConflict.noteID] = nil
         guard let active = conflict else {
             conflict = newConflict
             return
@@ -1591,8 +1661,9 @@ final class AppModel {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    private func replayJournal() async {
-        guard let journal, let repository else { return }
+    private func replayJournal() async -> [Note] {
+        guard let journal, let repository else { return [] }
+        var recovered: [Note] = []
         do {
             for entry in try await journal.pending() {
                 guard entry.kind == .edit || entry.kind == .create else { continue }
@@ -1605,6 +1676,7 @@ final class AppModel {
                             applyWriteMetadata(metadata, to: &notes[index])
                             baseBodies[notes[index].id] = notes[index].body
                             try await journal.remove(entry.id)
+                            recovered.append(notes[index])
                             transientMessage = "Recovered “\(notes[index].title)” after an interrupted save."
                         case .conflict(let data, let hash):
                             presentConflict(makeConflict(note: notes[index], data: data, hash: hash))
@@ -1619,6 +1691,17 @@ final class AppModel {
             staleSearchDocumentIDs.removeAll()
             recomputeDuplicateTitleKeys()
         } catch { errorMessage = error.localizedDescription }
+        return recovered
+    }
+
+    private func quarantineCache(at url: URL) {
+        let suffix = "broken-\(Int(Date.now.timeIntervalSince1970))-\(UUID().uuidString)"
+        for source in [url, URL(fileURLWithPath: url.path + "-wal"), URL(fileURLWithPath: url.path + "-shm")] {
+            guard FileManager.default.fileExists(atPath: source.path) else { continue }
+            let destination = source.deletingLastPathComponent()
+                .appendingPathComponent("\(source.lastPathComponent).\(suffix)")
+            try? FileManager.default.moveItem(at: source, to: destination)
+        }
     }
 
     private func apply(_ settings: LibrarySettings) {
@@ -1706,6 +1789,59 @@ extension NoteListColumn {
         case .title: .title
         case .modified: .modified
         case .created: .created
+        }
+    }
+}
+
+private actor CacheWriter {
+    private let cache: SQLiteCache
+
+    init(_ cache: SQLiteCache) {
+        self.cache = cache
+    }
+
+    func reconcile(_ reconciliation: CacheReconciliation) -> Bool {
+        do {
+            try cache.reconcile(reconciliation)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func replaceAll(with notes: [Note]) -> Bool {
+        do {
+            try cache.replaceAll(with: notes)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func upsert(_ note: Note) -> Bool {
+        do {
+            try cache.upsert(note)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func applyChanges(upserting notes: [Note], removing ids: Set<UUID>) -> Bool {
+        do {
+            try cache.applyChanges(upserting: notes, removing: ids)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func remove(id: UUID) -> Bool {
+        do {
+            try cache.remove(id: id)
+            return true
+        } catch {
+            return false
         }
     }
 }

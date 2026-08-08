@@ -80,6 +80,40 @@ struct ColumnConfigurationTests {
         #expect(abs(cell.label.frame.midY - cell.bounds.midY) < 0.001)
     }
 
+    @Test func tilesTheDocumentBelowTheHeaderAtLaunchAndAfterResize() async throws {
+        let scrollView = NoteListScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 249.5))
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.contentView = NoteListClipView()
+        scrollView.noteHeaderView.frame.size.height = NoteListScrollView.headerHeight
+        scrollView.noteTableView.headerView = scrollView.noteHeaderView
+        scrollView.noteTableView.frame.size.height = 1_000
+        scrollView.documentView = scrollView.noteTableView
+
+        scrollView.layoutSubtreeIfNeeded()
+        await finishNextMainQueueTurn()
+        try verifyHeaderAwareTiling(scrollView)
+
+        scrollView.frame.size = NSSize(width: 527, height: 317.5)
+        scrollView.layoutSubtreeIfNeeded()
+        await finishNextMainQueueTurn()
+        try verifyHeaderAwareTiling(scrollView)
+    }
+
+    @Test func preventsScrollingAboveTheFirstRow() {
+        let clipView = NoteListClipView(frame: NSRect(x: 0, y: 0, width: 480, height: 200))
+        let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 1_000))
+        clipView.documentView = documentView
+
+        let aboveDocument = NSRect(x: 0, y: -27, width: 480, height: 200)
+        let constrainedTop = clipView.constrainBoundsRect(aboveDocument)
+        #expect(constrainedTop.minY == documentView.frame.minY)
+
+        let normalScroll = NSRect(x: 0, y: 160, width: 480, height: 200)
+        let constrainedScroll = clipView.constrainBoundsRect(normalScroll)
+        #expect(constrainedScroll.minY == normalScroll.minY)
+    }
+
     @Test func finalNoteSeparatorIsExactlyOneDevicePixel() throws {
         let clip = NSRect(x: 0, y: 0, width: 300, height: 200)
 
@@ -97,6 +131,19 @@ struct ColumnConfigurationTests {
             backingScaleFactor: 1
         ))
         #expect(standard.hairline == NSRect(x: 0, y: 79, width: 300, height: 1))
+    }
+
+    private func verifyHeaderAwareTiling(_ scrollView: NoteListScrollView) throws {
+        let scroller = try #require(scrollView.verticalScroller)
+        #expect(scrollView.noteHeaderView.frame.height == NoteListScrollView.headerHeight)
+        #expect(abs(scrollView.contentView.frame.minY - scroller.frame.minY) < 0.001)
+        #expect(abs(scrollView.contentView.frame.height - scroller.frame.height) < 0.001)
+    }
+
+    private func finishNextMainQueueTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     private func makeModel() -> AppModel {
