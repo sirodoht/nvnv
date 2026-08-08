@@ -110,7 +110,6 @@ private struct NativeNoteTable: NSViewRepresentable {
             scrollView.hasVerticalScroller = true
             scrollView.hasHorizontalScroller = false
             scrollView.autohidesScrollers = true
-            scrollView.contentView = NoteListClipView()
 
             let tableView = scrollView.noteTableView
             tableView.dataSource = self
@@ -449,7 +448,10 @@ private struct NativeNoteTable: NSViewRepresentable {
             isSynchronizingSelection = false
         }
 
-        private func fulfillScrollRequest(in tableView: NSTableView, scrollView: NSScrollView) {
+        private func fulfillScrollRequest(
+            in tableView: NSTableView,
+            scrollView: NoteListScrollView
+        ) {
             guard let request = parent.scrollRequest,
                   pendingScrollRequestID != request.id else { return }
             pendingScrollRequestID = request.id
@@ -467,13 +469,13 @@ private struct NativeNoteTable: NSViewRepresentable {
                     case .minimal:
                         tableView.scrollRowToVisible(row)
                     case .top:
-                        let rowRect = tableView.rect(ofRow: row)
-                        scrollView.contentView.scroll(to: NSPoint(x: 0, y: rowRect.minY))
-                        scrollView.reflectScrolledClipView(scrollView.contentView)
+                        scrollView.scroll(
+                            rowTop: tableView.rect(ofRow: row).minY,
+                            in: tableView
+                        )
                     }
                 case .top:
-                    scrollView.contentView.scroll(to: .zero)
-                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                    scrollView.scroll(rowTop: tableView.frame.minY, in: tableView)
                 }
             }
         }
@@ -598,47 +600,20 @@ final class NoteListScrollView: NSScrollView {
     let noteTableView = NoteListNativeTableView()
     let noteHeaderView = NoteListTableHeaderView()
     var onLayout: (() -> Void)?
-    private var isClipFrameUpdateScheduled = false
 
     override func layout() {
         super.layout()
-        scheduleClipFrameUpdate()
         onLayout?()
     }
 
-    private func scheduleClipFrameUpdate() {
-        guard !isClipFrameUpdateScheduled else { return }
-        isClipFrameUpdateScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.isClipFrameUpdateScheduled = false
-
-            // SwiftUI's first WindowGroup layout leaves the document clip view
-            // spanning underneath the custom table header even though AppKit
-            // tiles the vertical scroller below it. Correct the clip after that
-            // layout transaction has completed so row zero is not obscured.
-            guard self.noteTableView.headerView != nil,
-                  let verticalScroller = self.verticalScroller else { return }
-            var clipFrame = self.contentView.frame
-            clipFrame.origin.y = verticalScroller.frame.minY
-            clipFrame.size.height = verticalScroller.frame.height
-            if self.contentView.frame != clipFrame {
-                self.contentView.frame = clipFrame
-            }
-        }
-    }
-}
-
-final class NoteListClipView: NSClipView {
-    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
-        var constrained = super.constrainBoundsRect(proposedBounds)
-        if let documentView {
-            // The custom header-aware clip frame makes AppKit treat one header
-            // height above the document as scrollable. Keep row zero flush with
-            // the header while preserving AppKit's other scroll constraints.
-            constrained.origin.y = max(constrained.origin.y, documentView.frame.minY)
-        }
-        return constrained
+    func scroll(rowTop: CGFloat, in tableView: NSTableView) {
+        let headerHeight = tableView.headerView?.frame.height ?? 0
+        var proposedBounds = contentView.bounds
+        proposedBounds.origin.x = 0
+        proposedBounds.origin.y = rowTop - headerHeight
+        let constrainedBounds = contentView.constrainBoundsRect(proposedBounds)
+        contentView.scroll(to: constrainedBounds.origin)
+        reflectScrolledClipView(contentView)
     }
 }
 

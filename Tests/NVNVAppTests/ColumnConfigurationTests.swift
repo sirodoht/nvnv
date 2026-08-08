@@ -80,38 +80,49 @@ struct ColumnConfigurationTests {
         #expect(abs(cell.label.frame.midY - cell.bounds.midY) < 0.001)
     }
 
-    @Test func tilesTheDocumentBelowTheHeaderAtLaunchAndAfterResize() async throws {
-        let scrollView = NoteListScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 249.5))
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.contentView = NoteListClipView()
-        scrollView.noteHeaderView.frame.size.height = NoteListScrollView.headerHeight
-        scrollView.noteTableView.headerView = scrollView.noteHeaderView
-        scrollView.noteTableView.frame.size.height = 1_000
-        scrollView.documentView = scrollView.noteTableView
+    @Test func topRequestUsesNativeHeaderGeometry() {
+        let (scrollView, dataSource) = makeScrollView()
+        _ = dataSource
 
-        scrollView.layoutSubtreeIfNeeded()
-        await finishNextMainQueueTurn()
-        try verifyHeaderAwareTiling(scrollView)
+        scrollView.scroll(rowTop: scrollView.noteTableView.frame.minY, in: scrollView.noteTableView)
+
+        #expect(scrollView.contentView.bounds.minY == -NoteListScrollView.headerHeight)
+        #expect(type(of: scrollView.contentView) == NSClipView.self)
+        let row = scrollView.noteTableView.rect(ofRow: 0)
+        #expect(row.minY - scrollView.contentView.bounds.minY == NoteListScrollView.headerHeight)
+    }
+
+    @Test func arbitraryRowTopAccountsForHeaderAndBottomConstraint() {
+        let (scrollView, dataSource) = makeScrollView()
+        _ = dataSource
+        let tableView = scrollView.noteTableView
+
+        let rowTenTop = tableView.rect(ofRow: 10).minY
+        scrollView.scroll(rowTop: rowTenTop, in: tableView)
+        #expect(scrollView.contentView.bounds.minY == rowTenTop - NoteListScrollView.headerHeight)
+        #expect(rowTenTop - scrollView.contentView.bounds.minY == NoteListScrollView.headerHeight)
+
+        let lastRowTop = tableView.rect(ofRow: tableView.numberOfRows - 1).minY
+        var proposed = scrollView.contentView.bounds
+        proposed.origin.y = lastRowTop - NoteListScrollView.headerHeight
+        let expected = scrollView.contentView.constrainBoundsRect(proposed).minY
+        scrollView.scroll(rowTop: lastRowTop, in: tableView)
+        #expect(scrollView.contentView.bounds.minY == expected)
+        #expect(expected < proposed.minY)
+    }
+
+    @Test func resizePreservesNativeTopWithoutDeferredFrameMutation() async {
+        let (scrollView, dataSource) = makeScrollView()
+        _ = dataSource
+        scrollView.scroll(rowTop: scrollView.noteTableView.frame.minY, in: scrollView.noteTableView)
 
         scrollView.frame.size = NSSize(width: 527, height: 317.5)
         scrollView.layoutSubtreeIfNeeded()
+        let frameAfterLayout = scrollView.contentView.frame
         await finishNextMainQueueTurn()
-        try verifyHeaderAwareTiling(scrollView)
-    }
 
-    @Test func preventsScrollingAboveTheFirstRow() {
-        let clipView = NoteListClipView(frame: NSRect(x: 0, y: 0, width: 480, height: 200))
-        let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 1_000))
-        clipView.documentView = documentView
-
-        let aboveDocument = NSRect(x: 0, y: -27, width: 480, height: 200)
-        let constrainedTop = clipView.constrainBoundsRect(aboveDocument)
-        #expect(constrainedTop.minY == documentView.frame.minY)
-
-        let normalScroll = NSRect(x: 0, y: 160, width: 480, height: 200)
-        let constrainedScroll = clipView.constrainBoundsRect(normalScroll)
-        #expect(constrainedScroll.minY == normalScroll.minY)
+        #expect(scrollView.contentView.bounds.minY == -NoteListScrollView.headerHeight)
+        #expect(scrollView.contentView.frame == frameAfterLayout)
     }
 
     @Test func finalNoteSeparatorIsExactlyOneDevicePixel() throws {
@@ -133,11 +144,23 @@ struct ColumnConfigurationTests {
         #expect(standard.hairline == NSRect(x: 0, y: 79, width: 300, height: 1))
     }
 
-    private func verifyHeaderAwareTiling(_ scrollView: NoteListScrollView) throws {
-        let scroller = try #require(scrollView.verticalScroller)
-        #expect(scrollView.noteHeaderView.frame.height == NoteListScrollView.headerHeight)
-        #expect(abs(scrollView.contentView.frame.minY - scroller.frame.minY) < 0.001)
-        #expect(abs(scrollView.contentView.frame.height - scroller.frame.height) < 0.001)
+    private func makeScrollView() -> (NoteListScrollView, NoteListDataSource) {
+        let dataSource = NoteListDataSource()
+        let scrollView = NoteListScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 249.5))
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        let tableView = scrollView.noteTableView
+        tableView.dataSource = dataSource
+        tableView.style = .plain
+        tableView.rowHeight = 16
+        tableView.intercellSpacing = .zero
+        tableView.addTableColumn(NSTableColumn(identifier: .init("test")))
+        scrollView.noteHeaderView.frame.size.height = NoteListScrollView.headerHeight
+        tableView.headerView = scrollView.noteHeaderView
+        scrollView.documentView = tableView
+        scrollView.layoutSubtreeIfNeeded()
+        return (scrollView, dataSource)
     }
 
     private func finishNextMainQueueTurn() async {
@@ -152,4 +175,8 @@ struct ColumnConfigurationTests {
         defaults.removePersistentDomain(forName: suite)
         return AppModel(userDefaults: defaults)
     }
+}
+
+private final class NoteListDataSource: NSObject, NSTableViewDataSource {
+    func numberOfRows(in tableView: NSTableView) -> Int { 100 }
 }
