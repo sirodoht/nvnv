@@ -5,6 +5,19 @@ All notable changes to nvnv are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-21
+
+### Changed
+
+- Replaced the separate editor find panel with an inline find-and-replace bar.
+- Seeded note searches from the active library query while preserving terms
+  entered directly in the find bar.
+
+### Fixed
+
+- Made Find Next and Find Previous reveal the inline find bar when it is hidden.
+- Kept note contents synchronized after Replace All, undo, and redo.
+
 ## [1.4.0] - 2026-08-08
 
 ### Added
@@ -106,6 +119,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   handling.
 - Native support for Apple silicon and Intel Macs running macOS 15 or newer.
 
+[1.5.0]: https://github.com/sirodoht/nvnv/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/sirodoht/nvnv/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/sirodoht/nvnv/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/sirodoht/nvnv/compare/v1.1.0...v1.2.0
