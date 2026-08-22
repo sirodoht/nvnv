@@ -19,6 +19,11 @@ final class EditorUndoRegistry {
     }
 }
 
+@MainActor
+final class EditorFindSession {
+    var lastImportedString: String?
+}
+
 final class SessionTextView: NSTextView {
     var sessionUndoManager: UndoManager?
     override var undoManager: UndoManager? { sessionUndoManager ?? super.undoManager }
@@ -69,6 +74,7 @@ struct PlainTextEditor: NSViewRepresentable {
     let note: Note
     let editable: Bool
     let matchRanges: [NSRange]
+    let findSeedText: String
     let fontName: String
     let fontSize: Double
     let softTabs: Bool
@@ -79,6 +85,7 @@ struct PlainTextEditor: NSViewRepresentable {
     let commandGeneration: Int
     let undoInvalidationGeneration: Int
     let undoRegistry: EditorUndoRegistry
+    let findSession: EditorFindSession
     let onChange: (String) -> Void
     let onSelectionChange: (NSRange) -> Void
     let onEditingEnded: () -> Void
@@ -105,7 +112,7 @@ struct PlainTextEditor: NSViewRepresentable {
         text.importsGraphics = false
         text.allowsUndo = true
         text.isAutomaticLinkDetectionEnabled = false
-        text.usesFindPanel = true
+        text.usesFindBar = true
         text.isIncrementalSearchingEnabled = true
         text.delegate = context.coordinator
         text.sessionUndoManager = undoRegistry.manager(for: note.id)
@@ -269,8 +276,8 @@ struct PlainTextEditor: NSViewRepresentable {
             case .indent: applyIndent(textView, outdent: false)
             case .outdent: applyIndent(textView, outdent: true)
             case .find: performFind(.showFindPanel, in: textView)
-            case .findNext: performFind(.next, in: textView)
-            case .findPrevious: performFind(.previous, in: textView)
+            case .findNext: performFind(.next, showingInterfaceIfNeeded: true, in: textView)
+            case .findPrevious: performFind(.previous, showingInterfaceIfNeeded: true, in: textView)
             case .openURL: openURL(at: textView.selectedRange().location, in: textView)
             }
         }
@@ -314,7 +321,31 @@ struct PlainTextEditor: NSViewRepresentable {
             parent.onSelectionChange(selection)
         }
 
-        private func performFind(_ action: NSFindPanelAction, in textView: NSTextView) {
+        private func performFind(
+            _ action: NSFindPanelAction,
+            showingInterfaceIfNeeded: Bool = false,
+            in textView: NSTextView
+        ) {
+            importFindSeedIfNeeded()
+            if showingInterfaceIfNeeded,
+               textView.enclosingScrollView?.isFindBarVisible != true {
+                sendFindAction(.showFindPanel, to: textView)
+            }
+            sendFindAction(action, to: textView)
+        }
+
+        private func importFindSeedIfNeeded() {
+            let seed = parent.findSeedText
+                .replacingOccurrences(of: "\"", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !seed.isEmpty, seed != parent.findSession.lastImportedString else { return }
+            let pasteboard = NSPasteboard(name: .find)
+            pasteboard.clearContents()
+            pasteboard.setString(seed, forType: .string)
+            parent.findSession.lastImportedString = seed
+        }
+
+        private func sendFindAction(_ action: NSFindPanelAction, to textView: NSTextView) {
             let sender = NSMenuItem()
             sender.tag = Int(action.rawValue)
             textView.performFindPanelAction(sender)

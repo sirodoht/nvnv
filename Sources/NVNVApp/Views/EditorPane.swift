@@ -4,6 +4,7 @@ import SwiftUI
 struct EditorPane: View {
     @Bindable var model: AppModel
     let undoRegistry: EditorUndoRegistry
+    let findSession: EditorFindSession
 
     var body: some View {
         Group {
@@ -18,6 +19,7 @@ struct EditorPane: View {
                     note: note,
                     editable: !model.isReadOnly && model.conflict?.noteID != note.id,
                     matchRanges: model.selectedEditorMatchRanges,
+                    findSeedText: model.query,
                     fontName: model.editorFontName,
                     fontSize: model.editorFontSize,
                     softTabs: model.softTabs,
@@ -28,6 +30,7 @@ struct EditorPane: View {
                     commandGeneration: model.editorCommandGeneration,
                     undoInvalidationGeneration: model.undoInvalidationGenerations[note.id, default: 0],
                     undoRegistry: undoRegistry,
+                    findSession: findSession,
                     onChange: model.updateBody,
                     onSelectionChange: model.updateSelection,
                     onEditingEnded: model.finishEditingBurst,

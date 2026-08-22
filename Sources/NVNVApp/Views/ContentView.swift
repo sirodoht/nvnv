@@ -5,6 +5,7 @@ struct ContentView: View {
     @Bindable var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var undoRegistry = EditorUndoRegistry()
+    @State private var findSession = EditorFindSession()
     @State private var dividerDragStart: Double?
 
     var body: some View {
@@ -70,7 +71,9 @@ struct ContentView: View {
                                 model.dividerFraction = min(max((dividerDragStart ?? model.dividerFraction) + value.translation.height / usable, 0.18), 0.76)
                             }
                             .onEnded { _ in dividerDragStart = nil })
-                    EditorPane(model: model, undoRegistry: undoRegistry)
+                    EditorPane(
+                        model: model, undoRegistry: undoRegistry, findSession: findSession
+                    )
                 }
             }
         }
