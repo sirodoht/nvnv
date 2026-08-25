@@ -97,9 +97,63 @@ struct TextTransformsTests {
         #expect(TextTransforms.newlineInsertion(text: "7. item", caret: 7).replacement == "\n8. ")
     }
 
-    @Test func emptyListItemTerminates() {
-        let result = TextTransforms.newlineInsertion(text: "- ", caret: 2)
-        #expect(result.range == NSRange(location: 0, length: 2))
-        #expect(result.replacement.isEmpty)
+    @Test func manuallyEnteredEmptyListMarkersArePreserved() {
+        let cases = [
+            (text: "- ", expected: "- \n"),
+            (text: "1. ", expected: "1. \n"),
+            (text: "  * ", expected: "  * \n  "),
+            (text: "  7. ", expected: "  7. \n  "),
+        ]
+        for value in cases {
+            let result = TextTransforms.newlineInsertion(
+                text: value.text,
+                caret: (value.text as NSString).length
+            )
+            let output = (value.text as NSString).replacingCharacters(
+                in: result.range,
+                with: result.replacement
+            )
+            #expect(output == value.expected)
+        }
+    }
+
+    @Test func emptyContinuedListItemsTerminate() {
+        let cases = [
+            (text: "- item\n- ", expected: "- item\n"),
+            (text: "1. item\n2. ", expected: "1. item\n"),
+            (text: "  * item\n  * ", expected: "  * item\n  "),
+            (text: "  7. item\n  8. ", expected: "  7. item\n  "),
+        ]
+        for value in cases {
+            let result = TextTransforms.newlineInsertion(
+                text: value.text,
+                caret: (value.text as NSString).length
+            )
+            let output = (value.text as NSString).replacingCharacters(
+                in: result.range,
+                with: result.replacement
+            )
+            #expect(output == value.expected)
+        }
+    }
+
+    @Test func emptyMarkerWithoutMatchingPreviousItemIsPreserved() {
+        let cases = [
+            (text: "paragraph\n1. ", expected: "paragraph\n1. \n"),
+            (text: "1. item\n3. ", expected: "1. item\n3. \n"),
+            (text: "- item\n* ", expected: "- item\n* \n"),
+            (text: "  1. item\n2. ", expected: "  1. item\n2. \n"),
+        ]
+        for value in cases {
+            let result = TextTransforms.newlineInsertion(
+                text: value.text,
+                caret: (value.text as NSString).length
+            )
+            let output = (value.text as NSString).replacingCharacters(
+                in: result.range,
+                with: result.replacement
+            )
+            #expect(output == value.expected)
+        }
     }
 }

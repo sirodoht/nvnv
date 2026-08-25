@@ -88,6 +88,14 @@ public enum TextTransforms {
 
         if let marker = listMarker(in: content) {
             if marker.remainder.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard isContinuedListItem(
+                    in: source,
+                    currentLineRange: lineRange,
+                    indentation: indentation,
+                    marker: marker
+                ) else {
+                    return (NSRange(location: safeCaret, length: 0), "\n\(indentation)")
+                }
                 let markerRange = NSRange(location: lineRange.location + indentation.utf16.count, length: marker.full.utf16.count)
                 return (markerRange, "")
             }
@@ -113,6 +121,30 @@ public enum TextTransforms {
         let full = String(content[fullRange])
         let next = number == UInt64.max ? full : "\(number + 1). "
         return (full, next, String(content[fullRange.upperBound...]))
+    }
+
+    private static func isContinuedListItem(
+        in source: NSString,
+        currentLineRange: NSRange,
+        indentation: String,
+        marker: (full: String, next: String, remainder: String)
+    ) -> Bool {
+        guard currentLineRange.location > 0 else { return false }
+        let previousLineRange = source.lineRange(
+            for: NSRange(location: currentLineRange.location - 1, length: 0)
+        )
+        let previousLine = source.substring(with: previousLineRange)
+            .trimmingCharacters(in: .newlines)
+        let previousIndentation = String(previousLine.prefix { $0 == " " || $0 == "\t" })
+        guard previousIndentation == indentation else { return false }
+
+        let previousContent = String(previousLine.dropFirst(previousIndentation.count))
+        guard let previousMarker = listMarker(in: previousContent),
+              previousMarker.next == marker.full,
+              !previousMarker.remainder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return true
     }
 
     private static func indentationLines(in block: String) -> ([String], Bool) {

@@ -511,6 +511,7 @@ List continuation applies after the current line's leading indentation.
 - A decimal marker such as `7. ` continues as `8. `.
 - The generated marker preserves the current line's indentation.
 - Pressing Return on an empty continued item removes its marker and ends the list.
+- Pressing Return after a manually entered empty marker with no preceding compatible list item preserves the marker and inserts a normal new line.
 - Overflowing the supported integer range leaves the next marker unchanged rather than corrupting text.
 - List continuation is plain-text insertion and has no semantic list model.
 
