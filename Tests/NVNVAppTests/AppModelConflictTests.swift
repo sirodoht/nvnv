@@ -272,6 +272,28 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func savingClearedNoteCannotRestoreItsLastExcerptCharacter() async throws {
+        let root = try makeLibrary(["A.txt": "x"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await Task.sleep(for: .milliseconds(150))
+        let note = try #require(model.notes.first)
+        model.select([note.id])
+
+        model.updateBody("")
+        #expect(model.selectedResult?.excerpt.isEmpty == true)
+        try await model.flushAll()
+
+        // Selection refreshes highlighting from the cached SearchDocument. A
+        // metadata replacement must not revive the pre-save excerpt ("x").
+        model.select([note.id])
+        #expect(model.selectedNote?.body.isEmpty == true)
+        #expect(model.selectedResult?.excerpt.isEmpty == true)
+        #expect(try String(contentsOf: root.appendingPathComponent("A.txt"), encoding: .utf8).isEmpty)
+        await model.forgetLibrary()
+    }
+
     @Test func externalRenamePreservesDirtyBody() async throws {
         let root = try makeLibrary(["A.txt": "alpha"])
         defer { try? FileManager.default.removeItem(at: root) }

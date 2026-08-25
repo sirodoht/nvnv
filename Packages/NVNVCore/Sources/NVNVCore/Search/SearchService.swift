@@ -81,7 +81,12 @@ public struct SearchDocument: Identifiable, Hashable, Sendable {
     }
 
     public func replacingMetadata(with note: Note) -> SearchDocument {
-        SearchDocument(
+        guard note.id == self.note.id,
+              note.title == self.note.title,
+              note.body == self.note.body else {
+            return SearchDocument(note: note)
+        }
+        return SearchDocument(
             note: note, normalizedTitle: normalizedTitle,
             normalizedTitleBytes: normalizedTitleBytes, normalizedBodyBytes: normalizedBodyBytes,
             excerpt: excerpt

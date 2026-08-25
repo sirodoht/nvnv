@@ -202,4 +202,19 @@ struct QueryParserTests {
         #expect(excerpt.count <= 80)
         #expect(excerpt.hasPrefix("word word"))
     }
+
+    @Test func metadataReplacementRebuildsDerivedContentWhenBodyChanges() {
+        let original = Note(title: "Draft", body: "x", filename: "Draft.txt")
+        let document = SearchDocument(note: original)
+        var cleared = original
+        cleared.body = ""
+        cleared.revision += 1
+
+        let replaced = document.replacingMetadata(with: cleared)
+
+        #expect(replaced.note.body.isEmpty)
+        #expect(replaced.excerpt.isEmpty)
+        #expect(replaced.normalizedBodyBytes.isEmpty)
+        #expect(SearchService.result(for: replaced, query: SearchQuery("x")) == nil)
+    }
 }
