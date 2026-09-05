@@ -886,10 +886,9 @@ final class AppModel {
     }
 
     func commitRename(to proposedTitle: String) async {
-        guard isRenaming, let request = renameRequest,
+        guard !isReadOnly, isRenaming, let request = renameRequest,
               let libraryURL, let repository,
-              let note = notes.first(where: { $0.id == request.noteID }),
-              let index = notes.firstIndex(where: { $0.id == note.id }) else { return }
+              let note = notes.first(where: { $0.id == request.noteID }) else { return }
         do {
             let stem = try FilenamePolicy.sanitizedStem(proposedTitle)
             let ext = URL(fileURLWithPath: note.filename).pathExtension
@@ -906,13 +905,22 @@ final class AppModel {
                 cancelRename()
                 return
             }
-            _ = try await repository.rename(note: note, to: filename)
+            guard await flushNoteBeforeDestructiveOperation(note.id),
+                  conflict?.noteID != note.id, queuedConflicts[note.id] == nil else {
+                if renameRequest?.id == request.id { cancelRename() }
+                return
+            }
+            guard renameRequest?.id == request.id, self.repository === repository,
+                  let savedNote = notes.first(where: { $0.id == note.id }) else { return }
+            _ = try await repository.rename(note: savedNote, to: filename)
+            guard self.repository === repository,
+                  let index = notes.firstIndex(where: { $0.id == note.id }) else { return }
             notes[index].filename = filename
             notes[index].title = finalTitle
             notes[index].modifiedAt = .now
             notes[index].revision += 1
-            let data = try await repository.data(for: filename)
-            notes[index].lastSavedHash = Hashing.sha256(data)
+            // Renaming does not acknowledge file contents. Preserve the saved
+            // hash so a concurrent external edit still conflicts on the next save.
             searchDocuments[note.id] = SearchDocument(note: notes[index])
             staleSearchDocumentIDs.remove(note.id)
             recomputeDuplicateTitleKeys()

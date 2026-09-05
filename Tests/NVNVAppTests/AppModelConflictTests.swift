@@ -170,6 +170,59 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func renamingDirtyNoteSavesItsBodyBeforeMovingTheFile() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await Task.sleep(for: .milliseconds(150))
+        let note = try #require(model.notes.first)
+        model.select([note.id])
+        model.updateBody("app draft")
+        model.startRename()
+        try #require(model.renameRequest?.noteID == note.id)
+
+        await model.commitRename(to: "Renamed")
+
+        #expect(model.conflict == nil)
+        #expect(model.errorMessage == nil)
+        #expect(model.selectedNote?.filename == "Renamed.txt")
+        #expect(model.selectedNote?.body == "app draft")
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("A.txt").path))
+        #expect(try String(contentsOf: root.appendingPathComponent("Renamed.txt"), encoding: .utf8) == "app draft")
+        let journal = try RecoveryJournal(directory: root.appendingPathComponent(".nvnv/journal"))
+        #expect(try await journal.pending().isEmpty)
+        await model.forgetLibrary()
+    }
+
+    @Test func renamingDirtyNotePreservesExternalEditsAndPresentsConflict() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await Task.sleep(for: .milliseconds(150))
+        let note = try #require(model.notes.first)
+        model.select([note.id])
+        model.updateBody("app draft")
+        model.startRename()
+        try #require(model.renameRequest?.noteID == note.id)
+        try Data("external edit".utf8).write(to: root.appendingPathComponent("A.txt"))
+
+        await model.commitRename(to: "Renamed")
+
+        #expect(model.conflict?.noteID == note.id)
+        #expect(model.conflict?.appBody == "app draft")
+        #expect(model.conflict?.fileBody == "external edit")
+        #expect(model.selectedNote?.filename == "A.txt")
+        #expect(model.selectedNote?.body == "app draft")
+        #expect(!model.isRenaming)
+        #expect(model.renameRequest == nil)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Renamed.txt").path))
+        #expect(try String(contentsOf: root.appendingPathComponent("A.txt"), encoding: .utf8) == "external edit")
+        await model.resolveConflictUseFile()
+        await model.forgetLibrary()
+    }
+
     @Test func libraryPathUsesInjectedPreferencesForSaveRestoreAndForget() async throws {
         let root = try makeLibrary(["A.txt": "alpha"])
         defer { try? FileManager.default.removeItem(at: root) }
