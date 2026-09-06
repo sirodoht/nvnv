@@ -89,6 +89,7 @@ final class AppModel {
     private var journalOperationIDs: [UUID: UUID] = [:]
     private var lastJournaledRevision: [UUID: Int] = [:]
     private var journalIDs: [UUID: UUID] = [:]
+    private var replayedJournalIDs: [UUID: Set<UUID>] = [:]
     private var baseBodies: [UUID: String] = [:]
     private var dirtyNoteIDs: Set<UUID> = []
     private var pendingLocalWriteHashes: [UUID: Set<String>] = [:]
@@ -248,6 +249,7 @@ final class AppModel {
         savingNoteIDs = []
         lastJournaledRevision = [:]
         journalIDs = [:]
+        replayedJournalIDs = [:]
         journalOperations = [:]
         journalOperationIDs = [:]
         duplicateTitleKeys = []
@@ -797,10 +799,16 @@ final class AppModel {
 
         await journalOperations[noteID]?.value
         guard conflict?.id == conflictID else { return }
-        if let journalID = journalIDs[noteID] {
+        var pendingJournalIDs = replayedJournalIDs[noteID] ?? []
+        if let journalID = journalIDs[noteID] { pendingJournalIDs.insert(journalID) }
+        for journalID in pendingJournalIDs {
+            guard conflict?.id == conflictID else { return }
             do { try await journal?.remove(journalID) }
-            catch { errorMessage = error.localizedDescription }
-            journalIDs[noteID] = Self.journalID(afterRemoving: journalID, current: journalIDs[noteID])
+            catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+            forgetJournalEntry(journalID, for: noteID)
         }
         guard conflict?.id == conflictID else { return }
         journalOperations[noteID] = nil
@@ -1403,6 +1411,12 @@ final class AppModel {
         current == removed ? nil : current
     }
 
+    private func forgetJournalEntry(_ journalID: UUID, for noteID: UUID) {
+        journalIDs[noteID] = Self.journalID(afterRemoving: journalID, current: journalIDs[noteID])
+        replayedJournalIDs[noteID]?.remove(journalID)
+        if replayedJournalIDs[noteID]?.isEmpty == true { replayedJournalIDs[noteID] = nil }
+    }
+
     private func invalidateUndoHistory(for noteID: UUID) {
         undoInvalidationGenerations[noteID, default: 0] &+= 1
     }
@@ -1669,6 +1683,11 @@ final class AppModel {
             for entry in try await journal.pending() {
                 guard entry.kind == .edit || entry.kind == .create else { continue }
                 if let index = notes.firstIndex(where: { $0.id == entry.noteID || $0.filename == entry.filename }) {
+                    // Cached note IDs may have been regenerated. Associate every
+                    // replayed draft with the current note until it is resolved.
+                    let noteID = notes[index].id
+                    journalIDs[noteID] = entry.id
+                    replayedJournalIDs[noteID, default: []].insert(entry.id)
                     if notes[index].lastSavedHash == entry.baseHash {
                         notes[index].body = entry.body
                         notes[index].revision = max(notes[index].revision, entry.revision)
@@ -1677,6 +1696,7 @@ final class AppModel {
                             applyWriteMetadata(metadata, to: &notes[index])
                             baseBodies[notes[index].id] = notes[index].body
                             try await journal.remove(entry.id)
+                            forgetJournalEntry(entry.id, for: noteID)
                             recovered.append(notes[index])
                             transientMessage = "Recovered “\(notes[index].title)” after an interrupted save."
                         case .conflict(let data, let hash):

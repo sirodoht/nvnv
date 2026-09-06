@@ -554,6 +554,114 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    enum RecoveryResolution: CaseIterable {
+        case useFile, keepApp, merge, keepBoth
+    }
+
+    @Test(arguments: RecoveryResolution.allCases, [1, 2])
+    func resolvedStartupRecoveryDoesNotReturn(resolution: RecoveryResolution, entryCount: Int) async throws {
+        let root = try makeLibrary(["A.txt": "external version"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = try RecoveryJournal(directory: root.appendingPathComponent(".nvnv/journal"))
+        let oldNoteID = UUID()
+        for revision in 1...entryCount {
+            try await journal.record(JournalEntry(
+                noteID: oldNoteID, kind: .edit, baseHash: "original hash",
+                filename: "A.txt", intendedFilename: "A.txt", body: "draft \(revision)",
+                revision: revision, createdAt: Date(timeIntervalSince1970: Double(revision))
+            ))
+        }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        let currentNoteID = try #require(model.conflict?.noteID)
+        #expect(currentNoteID != oldNoteID)
+        #expect(model.conflict?.appBody == "draft \(entryCount)")
+        model.deferConflict()
+        #expect(model.conflict != nil)
+        #expect(try await journal.pending().count == entryCount)
+
+        let expectedBodies: Set<String>
+        switch resolution {
+        case .useFile:
+            await model.resolveConflictUseFile()
+            expectedBodies = ["external version"]
+        case .keepApp:
+            await model.resolveConflictKeepApp()
+            expectedBodies = ["draft \(entryCount)"]
+        case .merge:
+            await model.resolveConflictMerge(body: "merged version")
+            expectedBodies = ["merged version"]
+        case .keepBoth:
+            await model.resolveConflictKeepBoth()
+            expectedBodies = ["external version", "draft \(entryCount)"]
+        }
+
+        #expect(model.conflict == nil)
+        #expect(model.errorMessage == nil)
+        #expect(try await journal.pending().isEmpty)
+        #expect(Set(model.notes.map(\.body)) == expectedBodies)
+        await model.forgetLibrary()
+
+        let reopened = makeModel()
+        await reopened.openLibrary(root, confirmedAuxiliaryCreation: true)
+        #expect(reopened.conflict == nil)
+        #expect(Set(reopened.notes.map(\.body)) == expectedBodies)
+        await reopened.resolveConflictUseFile()
+        await reopened.forgetLibrary()
+    }
+
+    @Test func failedStartupRecoveryResolutionRetainsItsJournal() async throws {
+        let root = try makeLibrary(["A.txt": "external version"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = try RecoveryJournal(directory: root.appendingPathComponent(".nvnv/journal"))
+        let entry = JournalEntry(
+            noteID: UUID(), kind: .edit, baseHash: "original hash", filename: "A.txt",
+            intendedFilename: "A.txt", body: "draft", revision: 1
+        )
+        try await journal.record(entry)
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        let conflict = try #require(model.conflict)
+        try Data("new external version".utf8).write(to: root.appendingPathComponent("A.txt"))
+
+        await model.resolveConflictKeepApp(expectedConflictID: conflict.id)
+
+        #expect(model.conflict != nil)
+        #expect(model.conflict?.fileBody == "new external version")
+        #expect(try await journal.pending().map(\.id) == [entry.id])
+        await model.resolveConflictUseFile()
+        #expect(try await journal.pending().isEmpty)
+        await model.forgetLibrary()
+    }
+
+    @Test func failedRecoveryJournalCleanupCanBeRetried() async throws {
+        let root = try makeLibrary(["A.txt": "external version"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent(".nvnv/journal")
+        let journal = try RecoveryJournal(directory: directory)
+        let entry = JournalEntry(
+            noteID: UUID(), kind: .edit, baseHash: "original hash", filename: "A.txt",
+            intendedFilename: "A.txt", body: "draft", revision: 1
+        )
+        try await journal.record(entry)
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        let conflict = try #require(model.conflict)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+
+        await model.resolveConflictUseFile()
+
+        #expect(model.conflict?.id == conflict.id)
+        #expect(model.errorMessage != nil)
+        #expect(try await journal.pending().map(\.id) == [entry.id])
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        await model.resolveConflictUseFile()
+        #expect(model.conflict == nil)
+        #expect(try await journal.pending().isEmpty)
+        await model.forgetLibrary()
+    }
+
     @Test func startupWatcherBufferTurnsPreActivationEventsIntoAFullRescan() {
         let buffer = DirectoryWatcherStartupBuffer()
         let recorder = ChangeRecorder()
