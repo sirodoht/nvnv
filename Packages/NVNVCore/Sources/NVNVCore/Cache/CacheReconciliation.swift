@@ -14,6 +14,7 @@ public struct CacheReconciliation: Sendable {
     public let indexedUpserts: [Note]
     public let metadataUpserts: [Note]
     public let removedIDs: Set<UUID>
+    public let renamedIDs: Set<UUID>
 
     public init(cached: [Note], authoritative: [Note]) {
         let cachedByID = Dictionary(uniqueKeysWithValues: cached.map { ($0.id, $0) })
@@ -22,6 +23,7 @@ public struct CacheReconciliation: Sendable {
 
         var indexed: [Note] = []
         var metadata: [Note] = []
+        var renamed: Set<UUID> = []
         indexed.reserveCapacity(authoritative.count)
         metadata.reserveCapacity(authoritative.count)
         for note in authoritative {
@@ -29,7 +31,8 @@ public struct CacheReconciliation: Sendable {
                 indexed.append(note)
                 continue
             }
-            if old.title != note.title || old.body != note.body {
+            if old.filename != note.filename { renamed.insert(note.id) }
+            if old.filename != note.filename || old.title != note.title || old.body != note.body {
                 indexed.append(note)
             } else if old != note {
                 metadata.append(note)
@@ -37,6 +40,7 @@ public struct CacheReconciliation: Sendable {
         }
         indexedUpserts = indexed
         metadataUpserts = metadata
+        renamedIDs = renamed
     }
 
     public var isEmpty: Bool {

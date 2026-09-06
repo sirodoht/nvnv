@@ -418,7 +418,8 @@ struct FileCoreTests {
         }
     }
 
-    @Test func targetedScanRecognizesRenameWhenOnlyNewPathIsReported() throws {
+    @Test(arguments: [false, true])
+    func targetedScanRecognizesRenameWhenOnlyNewPathIsReported(reuseFilename: Bool) throws {
         try withTemporaryDirectory { root in
             let original = root.appendingPathComponent("Original.txt")
             let renamed = root.appendingPathComponent("Renamed.txt")
@@ -426,6 +427,7 @@ struct FileCoreTests {
             let scanner = LibraryScanner()
             let cached = try scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes[0]
             try FileManager.default.moveItem(at: original, to: renamed)
+            if reuseFilename { try Data("replacement".utf8).write(to: original) }
 
             let result = try scanner.scan(
                 directory: root, paths: [renamed], recognizedExtensions: ["txt"],
@@ -434,6 +436,48 @@ struct FileCoreTests {
             #expect(result.notes.count == 1)
             #expect(result.notes[0].id == cached.id)
             #expect(result.notes[0].filename == "Renamed.txt")
+        }
+    }
+
+    @Test(arguments: ["A.txt", "Z.txt"], [false, true])
+    func renameWithFilenameReusePreservesDistinctNoteIDs(originalFilename: String, targeted: Bool) throws {
+        try withTemporaryDirectory { root in
+            let original = root.appendingPathComponent(originalFilename)
+            let renamed = root.appendingPathComponent("Renamed.txt")
+            try Data("original body".utf8).write(to: original)
+            let scanner = LibraryScanner()
+            var old = try #require(scanner.scan(directory: root, recognizedExtensions: ["txt"]).notes.first)
+            old.cursorStart = 3
+            old.revision = 7
+            try FileManager.default.moveItem(at: original, to: renamed)
+            try Data("replacement body".utf8).write(to: original)
+
+            let result = try targeted
+                ? scanner.scan(directory: root, paths: [original, renamed], recognizedExtensions: ["txt"], cached: [old.filename: old])
+                : scanner.scan(directory: root, recognizedExtensions: ["txt"], cached: [old.filename: old])
+
+            #expect(result.notes.count == 2)
+            #expect(Set(result.notes.map(\.id)).count == 2)
+            let moved = try #require(result.notes.first { $0.filename == "Renamed.txt" })
+            let replacement = try #require(result.notes.first { $0.filename == originalFilename })
+            #expect(moved.id == old.id)
+            #expect(moved.body == "original body")
+            #expect(moved.cursorStart == 3)
+            #expect(moved.revision == 7)
+            #expect(replacement.id != old.id)
+            #expect(replacement.body == "replacement body")
+            #expect(replacement.cursorStart == 0)
+            #expect(replacement.revision == 0)
+
+            let cache = try SQLiteCache(url: root.appendingPathComponent("index.sqlite3"))
+            try cache.replaceAll(with: [old])
+            try cache.reconcile(CacheReconciliation(cached: [old], authoritative: result.notes))
+            let persisted = try cache.cachedNotes()
+            #expect(persisted.count == 2)
+            #expect(persisted.first { $0.id == moved.id }?.filename == moved.filename)
+            #expect(persisted.first { $0.id == replacement.id }?.filename == replacement.filename)
+            #expect(try cache.candidateIDs(forNormalizedTerms: ["original"]) == [moved.id])
+            #expect(try cache.candidateIDs(forNormalizedTerms: ["replacement"]) == [replacement.id])
         }
     }
 
@@ -513,6 +557,7 @@ struct FileCoreTests {
                 cached: [renameResult.notes[0].filename: renameResult.notes[0]]
             )
             #expect(replacementResult.notes[0].body == "new")
+            #expect(replacementResult.notes[0].id == cached.id)
             #expect(replacementResult.notes[0].fileIdentity != renameResult.notes[0].fileIdentity)
         }
     }

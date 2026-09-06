@@ -111,7 +111,11 @@ public final class SQLiteCache: @unchecked Sendable {
         try withLock {
             try executeUnlocked("BEGIN IMMEDIATE")
             do {
-                for id in reconciliation.removedIDs { try removeUnlocked(id: id) }
+                // Release old filenames before inserting replacements or swapped
+                // names. Renamed notes are reinserted below in the same transaction.
+                for id in reconciliation.removedIDs.union(reconciliation.renamedIDs) {
+                    try removeUnlocked(id: id)
+                }
                 for note in reconciliation.metadataUpserts { try updateMetadataUnlocked(note) }
                 for note in reconciliation.indexedUpserts { try upsertUnlocked(note) }
                 try executeUnlocked("COMMIT")

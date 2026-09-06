@@ -1480,10 +1480,8 @@ final class AppModel {
             guard generation == reconcileGeneration else { return }
             let currentByID = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0) })
             let oldByID = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.id, $0) })
-            let oldByIdentity = Dictionary(uniqueKeysWithValues: cachedNotes.compactMap { note in note.fileIdentity.map { ($0, note) } })
             let identityPreserved = scan.notes.map { disk -> Note in
-                guard oldByFilename[disk.filename] == nil, let identity = disk.fileIdentity,
-                      let old = oldByIdentity[identity] else { return disk }
+                guard let old = oldByID[disk.id], old.filename != disk.filename else { return disk }
                 var renamed = disk
                 renamed = Note(
                     id: old.id, title: disk.title, body: disk.body,
@@ -1503,7 +1501,7 @@ final class AppModel {
             var reconciled: [Note] = []
             var handledNoteIDs: Set<UUID> = []
             for disk in scan.notes {
-                guard let old = oldByFilename[disk.filename] ?? oldByID[disk.id] else {
+                guard let old = oldByID[disk.id] else {
                     reconciled.append(disk)
                     continue
                 }
@@ -1558,9 +1556,6 @@ final class AppModel {
         let cachedNotes = notes
         let oldByFilename = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.filename, $0) })
         let oldByID = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.id, $0) })
-        let oldByIdentity = Dictionary(uniqueKeysWithValues: cachedNotes.compactMap { note in
-            note.fileIdentity.map { ($0, note) }
-        })
         let root = libraryURL.standardizedFileURL
         let relevantPaths = Set(paths.map(\.standardizedFileURL).filter { url in
             guard url.deletingLastPathComponent() == root, !url.lastPathComponent.hasPrefix(".") else { return false }
@@ -1582,9 +1577,7 @@ final class AppModel {
             var upsertsByID: [UUID: Note] = [:]
             var handledOldIDs: Set<UUID> = []
             for var disk in scan.notes {
-                let old = oldByFilename[disk.filename]
-                    ?? disk.fileIdentity.flatMap { oldByIdentity[$0] }
-                guard let old else {
+                guard let old = oldByID[disk.id] else {
                     upsertsByID[disk.id] = disk
                     continue
                 }

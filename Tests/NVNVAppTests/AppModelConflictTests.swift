@@ -371,6 +371,38 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test(arguments: [false, true])
+    func externalRenameWithFilenameReuseKeepsNotesSeparate(dirty: Bool) async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        let original = try #require(model.notes.first)
+        model.selection = [original.id]
+        if dirty { model.updateBody("unsaved draft") }
+        try FileManager.default.moveItem(
+            at: root.appendingPathComponent("A.txt"), to: root.appendingPathComponent("Renamed.txt")
+        )
+        // Identical content must not cause reconciliation to merge distinct files.
+        try Data("alpha".utf8).write(to: root.appendingPathComponent("A.txt"))
+
+        try await Task.sleep(for: .milliseconds(600))
+        try await model.flushAll()
+
+        #expect(model.notes.count == 2)
+        #expect(Set(model.notes.map(\.id)).count == 2)
+        let renamed = try #require(model.notes.first { $0.filename == "Renamed.txt" })
+        let replacement = try #require(model.notes.first { $0.filename == "A.txt" })
+        #expect(renamed.id == original.id)
+        #expect(renamed.body == (dirty ? "unsaved draft" : "alpha"))
+        #expect(replacement.id != original.id)
+        #expect(replacement.body == "alpha")
+        #expect(model.conflict == nil)
+        #expect(try String(contentsOf: root.appendingPathComponent("A.txt"), encoding: .utf8) == "alpha")
+        #expect(try String(contentsOf: root.appendingPathComponent("Renamed.txt"), encoding: .utf8) == renamed.body)
+        await model.forgetLibrary()
+    }
+
     @Test func simultaneousConflictsAreResolvedInDetectionOrder() async throws {
         let root = try makeLibrary(["A.txt": "alpha", "B.txt": "beta"])
         defer { try? FileManager.default.removeItem(at: root) }

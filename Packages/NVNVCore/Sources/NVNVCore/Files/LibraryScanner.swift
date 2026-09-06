@@ -46,6 +46,8 @@ public struct LibraryScanner: Sendable {
         let urls = try FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: Array(keys), options: [.skipsSubdirectoryDescendants]
         ).sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let metadataByFilename = scanMetadata(for: urls, recognizedExtensions: recognizedExtensions)
+        let observedIdentities = Set(metadataByFilename.values.map(\.identity))
 
         var notes: [Note] = []
         var issues: [ScanIssue] = []
@@ -63,7 +65,7 @@ public struct LibraryScanner: Sendable {
                   recognizedExtensions.contains(url.pathExtension.lowercased()) else { continue }
             let values = try url.resourceValues(forKeys: keys)
             guard values.isRegularFile == true, values.isSymbolicLink != true, values.isHidden != true else { continue }
-            guard let metadata = fileMetadata(url) else {
+            guard let metadata = metadataByFilename[filename] else {
                 issues.append(.init(filename: filename, message: "Could not determine a stable file identity."))
                 continue
             }
@@ -72,7 +74,10 @@ public struct LibraryScanner: Sendable {
                 issues.append(.init(filename: filename, message: "Duplicate hard link ignored."))
                 continue
             }
-            let old = cached[filename] ?? cachedByIdentity[identity]
+            let old = matchingCachedNote(
+                filename: filename, identity: identity, cached: cached,
+                cachedByIdentity: cachedByIdentity, observedIdentities: observedIdentities
+            )
             if let old, metadata.matches(old) {
                 notes.append(Note(
                     id: old.id, title: url.deletingPathExtension().lastPathComponent,
@@ -131,6 +136,8 @@ public struct LibraryScanner: Sendable {
         let urls = paths.map(\.standardizedFileURL).filter {
             $0.deletingLastPathComponent() == root
         }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let metadataByFilename = scanMetadata(for: urls, recognizedExtensions: recognizedExtensions)
+        let observedIdentities = Set(metadataByFilename.values.map(\.identity))
         let targetedFilenames = Set(urls.map(\.lastPathComponent))
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .isHiddenKey, .creationDateKey, .contentModificationDateKey]
         let unchangedIdentities = Set(cached.values.compactMap { note in
@@ -153,7 +160,7 @@ public struct LibraryScanner: Sendable {
             let values = try url.resourceValues(forKeys: keys)
             guard values.isRegularFile == true, values.isSymbolicLink != true,
                   values.isHidden != true else { continue }
-            guard let metadata = fileMetadata(url) else {
+            guard let metadata = metadataByFilename[filename] else {
                 issues.append(.init(filename: filename, message: "Could not determine a stable file identity."))
                 continue
             }
@@ -163,11 +170,14 @@ public struct LibraryScanner: Sendable {
             }
             if unchangedIdentities.contains(metadata.identity),
                let owner = cachedByIdentity[metadata.identity],
-               FileManager.default.fileExists(atPath: root.appendingPathComponent(owner.filename).path) {
+               fileMetadata(root.appendingPathComponent(owner.filename))?.identity == metadata.identity {
                 issues.append(.init(filename: filename, message: "Duplicate hard link ignored."))
                 continue
             }
-            let old = cached[filename] ?? cachedByIdentity[metadata.identity]
+            let old = matchingCachedNote(
+                filename: filename, identity: metadata.identity, cached: cached,
+                cachedByIdentity: cachedByIdentity, observedIdentities: observedIdentities
+            )
             if let old, metadata.matches(old) {
                 notes.append(Note(
                     id: old.id, title: url.deletingPathExtension().lastPathComponent,
@@ -208,6 +218,28 @@ public struct LibraryScanner: Sendable {
             ))
         }
         return ScanResult(notes: notes, issues: issues)
+    }
+
+    private func scanMetadata(for urls: [URL], recognizedExtensions: Set<String>) -> [String: ScannedFileMetadata] {
+        var metadata: [String: ScannedFileMetadata] = [:]
+        for url in urls where !url.lastPathComponent.hasPrefix(".")
+            && !url.pathExtension.isEmpty && recognizedExtensions.contains(url.pathExtension.lowercased()) {
+            metadata[url.lastPathComponent] = fileMetadata(url)
+        }
+        return metadata
+    }
+
+    private func matchingCachedNote(
+        filename: String, identity: String, cached: [String: Note],
+        cachedByIdentity: [String: Note], observedIdentities: Set<String>
+    ) -> Note? {
+        // Reserve cached IDs for files that still exist, regardless of scan order.
+        // A reused filename must not steal the ID of a file renamed elsewhere.
+        if let old = cachedByIdentity[identity] { return old }
+        guard let old = cached[filename] else { return nil }
+        if let oldIdentity = old.fileIdentity, observedIdentities.contains(oldIdentity) { return nil }
+        // Atomic replacement changes the inode but keeps the logical note.
+        return old
     }
 
     private func fileMetadata(_ url: URL) -> ScannedFileMetadata? {
