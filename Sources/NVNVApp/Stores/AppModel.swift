@@ -8,6 +8,14 @@ import OSLog
 @Observable
 final class AppModel {
     var libraryURL: URL?
+    private(set) var libraryCatalog: LibraryCatalog
+    private(set) var isSwitchingLibrary = false
+    private(set) var librarySessionID = UUID()
+    var isLibrarySwitcherPresented = false
+    var libraryToRename: NamedLibrary?
+    var libraryToRemove: NamedLibrary?
+    var libraryNameDraft = ""
+    var librarySwitcherAction: LibrarySwitcherAction?
     private(set) var isRestoringLibrary: Bool
     var notes: [Note] = []
     var results: [SearchResult] = []
@@ -100,10 +108,73 @@ final class AppModel {
     private var scrollToTopAfterNextSearch = false
     private var automaticSelectionSuppressedQuery: String?
     private var navigationHistory: [(String, Set<UUID>)] = []
+    private var librarySessions: [String: LibrarySession] = [:]
+    private var activeNoteOperations = 0
+    private var cacheTasks: [UUID: Task<Void, Never>] = [:]
+    private var scrollToSelectionAfterNextSearch = false
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        isRestoringLibrary = userDefaults.string(forKey: "lastLibraryPath") != nil
+        let catalog = LibraryCatalog.load(
+            data: userDefaults.data(forKey: "namedLibraries"),
+            legacyPath: userDefaults.string(forKey: "lastLibraryPath")
+        )
+        libraryCatalog = catalog
+        isRestoringLibrary = catalog.activeLibrary != nil
+    }
+
+    var libraries: [NamedLibrary] { libraryCatalog.libraries }
+    var activeLibrary: NamedLibrary? {
+        guard let libraryURL else { return nil }
+        return libraries.first { LibraryCatalog.canonicalURL($0.url) == libraryURL }
+    }
+
+    func showLibrarySwitcher() {
+        guard !isSwitchingLibrary else { return }
+        isLibrarySwitcherPresented = true
+    }
+
+    func switchLibrary(to library: NamedLibrary) async {
+        guard libraries.contains(where: { $0.id == library.id }) else { return }
+        await openLibrary(library.url, confirmedAuxiliaryCreation: true)
+    }
+
+    func renameLibrary(_ library: NamedLibrary, to name: String) {
+        libraryCatalog.rename(library.id, to: name)
+        persistLibraryCatalog()
+    }
+
+    func beginRenamingLibrary(_ library: NamedLibrary) {
+        libraryNameDraft = library.name
+        libraryToRename = library
+    }
+
+    func finishLibrarySwitcher() {
+        let action = librarySwitcherAction
+        librarySwitcherAction = nil
+        switch action {
+        case .open(let library):
+            Task { await switchLibrary(to: library) }
+        case .add:
+            Task { await chooseLibrary() }
+        case .rename(let library):
+            beginRenamingLibrary(library)
+        case .remove(let library):
+            libraryToRemove = library
+        case nil:
+            if libraryURL != nil { focusSearch() }
+        }
+    }
+
+    private func persistLibraryCatalog() {
+        if let data = try? JSONEncoder().encode(libraryCatalog) {
+            userDefaults.set(data, forKey: "namedLibraries")
+        }
+        if let active = libraryCatalog.activeLibrary {
+            userDefaults.set(active.path, forKey: "lastLibraryPath")
+        } else {
+            userDefaults.removeObject(forKey: "lastLibraryPath")
+        }
     }
 
     var selectedNote: Note? {
@@ -177,18 +248,19 @@ final class AppModel {
             isRestoringLibrary = false
             return
         }
-        guard let path = userDefaults.string(forKey: "lastLibraryPath") else {
+        guard let library = libraryCatalog.activeLibrary else {
             isRestoringLibrary = false
             return
         }
         defer { isRestoringLibrary = false }
-        await openLibrary(URL(fileURLWithPath: path), confirmedAuxiliaryCreation: true)
+        await switchLibrary(to: library)
     }
 
     func chooseLibrary() async {
+        guard !isSwitchingLibrary else { return }
         let panel = NSOpenPanel()
-        panel.title = "Choose Notes Folder"
-        panel.prompt = "Open Library"
+        panel.title = "Add Library — Choose or Create a Folder"
+        panel.prompt = "Add Library"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
@@ -209,20 +281,70 @@ final class AppModel {
     }
 
     func forgetLibrary() async {
-        guard libraryURL != nil else { return }
+        guard let library = activeLibrary else { return }
+        await removeLibrary(library)
+    }
+
+    func removeLibrary(_ library: NamedLibrary) async {
+        guard !isSwitchingLibrary, libraries.contains(where: { $0.id == library.id }) else { return }
+        guard activeLibrary?.id == library.id else {
+            libraryCatalog.remove(library.id)
+            librarySessions[library.path] = nil
+            persistLibraryCatalog()
+            return
+        }
+        beginLibraryTransition()
+        defer { endLibraryTransition() }
         do {
+            while activeNoteOperations > 0 { await Task.yield() }
             try await flushAll()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             return
         }
 
+        clearLibraryRuntime()
+        librarySessions[library.path] = nil
+        libraryCatalog.remove(library.id)
+        persistLibraryCatalog()
+    }
+
+    private func beginLibraryTransition() {
+        isSwitchingLibrary = true
+        reconcileGeneration += 1
+        searchGeneration += 1
+        searchTask?.cancel()
+        visibleResultTask?.cancel()
+        settingsTask?.cancel()
+    }
+
+    private func endLibraryTransition() {
+        isSwitchingLibrary = false
+        refreshSearch()
+        // Watcher events are suppressed during preparation, including failed
+        // opens. Rescan the surviving/installed library to close that gap.
+        let sessionID = librarySessionID
+        Task { [weak self] in
+            guard let self, self.librarySessionID == sessionID, !self.isSwitchingLibrary else { return }
+            await self.reconcileExternalChanges(.init(paths: [], requiresFullRescan: true))
+        }
+    }
+
+    private func clearLibraryRuntime() {
         searchTask?.cancel()
         visibleResultTask?.cancel()
         settingsTask?.cancel()
         for task in deadlineTasks.values { task.cancel() }
         deadlineTasks.removeAll()
+        for task in saveTasks.values { task.cancel() }
+        saveTasks.removeAll()
+        for task in journalTasks.values { task.cancel() }
+        journalTasks.removeAll()
+        for task in journalDeadlineTasks.values { task.cancel() }
+        journalDeadlineTasks.removeAll()
+        searchGeneration += 1
         reconcileGeneration += 1
+        librarySessionID = UUID()
 
         watcher = nil
         libraryLock = nil
@@ -237,6 +359,7 @@ final class AppModel {
         results = []
         selection = []
         selectionKind = .none
+        isShowingSelectedNoteTitle = false
         searchText = ""
         query = ""
         searchDocuments = [:]
@@ -254,6 +377,11 @@ final class AppModel {
         journalOperationIDs = [:]
         duplicateTitleKeys = []
         navigationHistory = []
+        lastAppliedSearchQuery = nil
+        lastAppliedSearchDocumentsGeneration = nil
+        pendingListResort = false
+        scrollToTopAfterNextSearch = false
+        scrollToSelectionAfterNextSearch = false
         scanIssues = []
         queuedConflicts = [:]
         queuedConflictOrder = []
@@ -267,24 +395,15 @@ final class AppModel {
         focusRequest = nil
         listScrollRequest = nil
         renameRequest = nil
+        editorCommand = nil
         errorMessage = nil
         transientMessage = nil
-        userDefaults.removeObject(forKey: "lastLibraryPath")
-    }
-
-    func confirmAndForgetLibrary() async {
-        guard libraryURL != nil else { return }
-        let alert = NSAlert()
-        alert.messageText = "Forget this library?"
-        alert.informativeText = "nvnv will return to the welcome screen and stop remembering this folder. Your notes and the folder’s .nvnv data will remain untouched."
-        alert.addButton(withTitle: "Forget Library")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        await forgetLibrary()
     }
 
     func resetSettings() async {
-        guard let settingsRepository else { return }
+        guard !isSwitchingLibrary, !isReadOnly, let settingsRepository else { return }
+        activeNoteOperations += 1
+        defer { activeNoteOperations -= 1 }
         let defaults = LibrarySettings()
         apply(defaults)
         cancelRename()
@@ -311,14 +430,17 @@ final class AppModel {
     }
 
     func openLibrary(_ url: URL, confirmedAuxiliaryCreation: Bool) async {
-        guard confirmedAuxiliaryCreation else { return }
+        guard confirmedAuxiliaryCreation, !isSwitchingLibrary else { return }
         let selectedURL = url.standardizedFileURL.resolvingSymlinksInPath()
         if let libraryURL,
            libraryURL.standardizedFileURL.resolvingSymlinksInPath() == selectedURL {
             focusSearch()
             return
         }
+        beginLibraryTransition()
+        defer { endLibraryTransition() }
         do {
+            while activeNoteOperations > 0 { await Task.yield() }
             try await flushAll()
             try scanner.validate(selectedURL)
             let auxiliary = selectedURL.appendingPathComponent(".nvnv", isDirectory: true)
@@ -327,7 +449,7 @@ final class AppModel {
             let writable = lock.isWritable
             let settingsRepository = SettingsRepository(url: auxiliary.appendingPathComponent("settings.json"))
             let settings = await settingsRepository.load()
-            apply(settings)
+            let journal = writable ? try RecoveryJournal(directory: auxiliary.appendingPathComponent("journal")) : nil
 
             let cacheURL = auxiliary.appendingPathComponent("index.sqlite3")
             var cache: SQLiteCache?
@@ -364,8 +486,18 @@ final class AppModel {
             let initialWatcher = DirectoryWatcher(url: selectedURL) { change in
                 startupWatcherBuffer.receive(change)
             }
-            let scan = try scanner.scan(directory: selectedURL, recognizedExtensions: settings.recognizedExtensions, cached: cachedByFilename)
+            let scanner = scanner
+            let scan = try await Task.detached(priority: .userInitiated) {
+                try scanner.scan(directory: selectedURL, recognizedExtensions: settings.recognizedExtensions, cached: cachedByFilename)
+            }.value
 
+            if let outgoingURL = libraryURL {
+                librarySessions[outgoingURL.path] = LibrarySession(
+                    notes: notes, query: query, selection: selection, selectionKind: selectionKind,
+                    suppressAutomaticSelection: automaticSelectionSuppressedQuery == query
+                )
+            }
+            clearLibraryRuntime()
             self.libraryURL = selectedURL
             self.libraryLock = lock
             self.isReadOnly = !writable
@@ -373,7 +505,8 @@ final class AppModel {
             self.cache = cache
             self.cacheWriter = cache.map(CacheWriter.init)
             self.settingsRepository = settingsRepository
-            self.journal = writable ? try RecoveryJournal(directory: auxiliary.appendingPathComponent("journal")) : nil
+            self.journal = journal
+            apply(settings)
             self.notes = scan.notes
             self.searchDocuments = Dictionary(uniqueKeysWithValues: scan.notes.map { ($0.id, SearchDocument(note: $0)) })
             self.staleSearchDocumentIDs.removeAll()
@@ -424,19 +557,40 @@ final class AppModel {
                 )
             }
             watcher = initialWatcher
+            let sessionID = librarySessionID
             startupWatcherBuffer.activate { [weak self] change in
-                Task { @MainActor in await self?.reconcileExternalChanges(change) }
+                Task { @MainActor in
+                    guard let self, self.librarySessionID == sessionID, !self.isSwitchingLibrary else { return }
+                    await self.reconcileExternalChanges(change)
+                }
             }
-            userDefaults.set(selectedURL.path, forKey: "lastLibraryPath")
-            scrollToTopAfterNextSearch = true
-            refreshSearch()
+            libraryCatalog.activate(selectedURL)
+            persistLibraryCatalog()
+            restoreLibrarySession(at: selectedURL)
             focusSearch()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
+    private func restoreLibrarySession(at url: URL) {
+        guard let session = librarySessions[url.path] else {
+            scrollToTopAfterNextSearch = true
+            return
+        }
+        selection = session.restorePositions(in: &notes)
+        selectionKind = selection.isEmpty ? .none : session.selectionKind
+        searchText = session.query
+        query = session.query
+        automaticSelectionSuppressedQuery = session.suppressAutomaticSelection ? session.query : nil
+        searchDocuments = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, SearchDocument(note: $0)) })
+        synchronizeSelectedTitlePresentation()
+        scrollToSelectionAfterNextSearch = !selection.isEmpty
+        scrollToTopAfterNextSearch = selection.isEmpty
+    }
+
     func select(_ ids: Set<UUID>, explicitly: Bool = true) {
+        guard !isSwitchingLibrary else { return }
         if explicitly, ids != selection {
             navigationHistory.append((query, selection))
         }
@@ -452,7 +606,7 @@ final class AppModel {
     }
 
     func moveSelection(by offset: Int) {
-        guard !results.isEmpty else { return }
+        guard !isSwitchingLibrary, !results.isEmpty else { return }
         let current = selection.first.flatMap { id in results.firstIndex { $0.id == id } }
         let start = current ?? (offset > 0 ? -1 : results.count)
         let target = min(max(start + offset, 0), results.count - 1)
@@ -461,6 +615,7 @@ final class AppModel {
     }
 
     func userEnteredSearchText(_ value: String) {
+        guard !isSwitchingLibrary else { return }
         automaticSelectionSuppressedQuery = nil
         isShowingSelectedNoteTitle = false
         if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -470,6 +625,7 @@ final class AppModel {
     }
 
     func submitSearch() async {
+        guard !isSwitchingLibrary else { return }
         let parsed = SearchQuery(query)
         let explicitID = selectionKind == .explicit ? selection.first : nil
         let validExplicitID = explicitID.flatMap { id in
@@ -489,6 +645,7 @@ final class AppModel {
     }
 
     func clearOrCancel() {
+        guard !isSwitchingLibrary else { return }
         automaticSelectionSuppressedQuery = nil
         if isShowingSelectedNoteTitle {
             selection = []
@@ -499,6 +656,7 @@ final class AppModel {
     }
 
     func returnToSearch() {
+        guard !isSwitchingLibrary else { return }
         cancelRename()
         selection = []
         selectionKind = .none
@@ -514,7 +672,7 @@ final class AppModel {
 
     @discardableResult
     func focusSelectedNoteEditor() -> Bool {
-        guard selectedNote != nil else { return false }
+        guard !isSwitchingLibrary, selectedNote != nil else { return false }
         enterSelectedNoteMode()
         requestEditorFocus()
         return true
@@ -536,7 +694,7 @@ final class AppModel {
     }
 
     func startRename() {
-        guard !isReadOnly, !isRenaming, let note = selectedNote else { return }
+        guard !isSwitchingLibrary, !isReadOnly, !isRenaming, let note = selectedNote else { return }
         if !showTitleColumn { setNoteListColumn(.title, visible: true) }
         isRenaming = true
         renameRequest = RenameRequest(noteID: note.id)
@@ -548,7 +706,7 @@ final class AppModel {
     }
 
     func updateBody(_ body: String) {
-        guard !isReadOnly, let id = selection.first, conflict?.noteID != id,
+        guard !isSwitchingLibrary, !isReadOnly, let id = selection.first, conflict?.noteID != id,
               let index = notes.firstIndex(where: { $0.id == id }), notes[index].body != body else { return }
         notes[index].body = body
         notes[index].modifiedAt = .now
@@ -568,14 +726,16 @@ final class AppModel {
     }
 
     func updateSelection(_ range: NSRange) {
-        guard let id = selection.first, let index = notes.firstIndex(where: { $0.id == id }) else { return }
+        guard !isSwitchingLibrary, let id = selection.first, let index = notes.firstIndex(where: { $0.id == id }) else { return }
         notes[index].cursorStart = range.location
         notes[index].cursorLength = range.length
         persistSettingsSoon()
     }
 
     func deleteSelection() async {
-        guard !isReadOnly, !selection.isEmpty else { return }
+        guard !isSwitchingLibrary, !isReadOnly, !selection.isEmpty else { return }
+        activeNoteOperations += 1
+        defer { activeNoteOperations -= 1 }
         if confirmDeletion {
             let alert = NSAlert()
             alert.messageText = selection.count == 1 ? "Move this note to Trash?" : "Move \(selection.count) notes to Trash?"
@@ -632,6 +792,7 @@ final class AppModel {
     }
 
     func performEditorCommand(_ command: EditorCommand) {
+        guard !isSwitchingLibrary else { return }
         editorCommand = command
         editorCommandGeneration += 1
     }
@@ -651,6 +812,7 @@ final class AppModel {
     }
 
     func navigateBack() {
+        guard !isSwitchingLibrary else { return }
         automaticSelectionSuppressedQuery = nil
         while let previous = navigationHistory.popLast() {
             let valid = previous.1.intersection(Set(notes.map(\.id)))
@@ -666,6 +828,9 @@ final class AppModel {
     }
 
     func resolveConflictUseFile(expectedConflictID: UUID? = nil) async {
+        guard !isSwitchingLibrary, !isReadOnly else { return }
+        activeNoteOperations += 1
+        defer { activeNoteOperations -= 1 }
         guard let conflict,
               expectedConflictID == nil || expectedConflictID == conflict.id,
               let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
@@ -694,6 +859,9 @@ final class AppModel {
     }
 
     func resolveConflictKeepApp(expectedConflictID: UUID? = nil) async {
+        guard !isSwitchingLibrary, !isReadOnly else { return }
+        activeNoteOperations += 1
+        defer { activeNoteOperations -= 1 }
         guard let conflict,
               expectedConflictID == nil || expectedConflictID == conflict.id,
               let note = notes.first(where: { $0.id == conflict.noteID }), let repository else { return }
@@ -723,6 +891,7 @@ final class AppModel {
     }
 
     func resolveConflictMerge(body: String, expectedConflictID: UUID? = nil) async {
+        guard !isSwitchingLibrary, !isReadOnly else { return }
         guard let conflict,
               expectedConflictID == nil || expectedConflictID == conflict.id,
               let index = notes.firstIndex(where: { $0.id == conflict.noteID }) else { return }
@@ -733,6 +902,9 @@ final class AppModel {
     }
 
     func resolveConflictKeepBoth(expectedConflictID: UUID? = nil) async {
+        guard !isSwitchingLibrary, !isReadOnly else { return }
+        activeNoteOperations += 1
+        defer { activeNoteOperations -= 1 }
         guard let conflict,
               expectedConflictID == nil || expectedConflictID == conflict.id,
               let libraryURL, let repository,
@@ -825,6 +997,10 @@ final class AppModel {
         journalDeadlineTasks.removeAll()
         for id in Array(dirtyNoteIDs) { await writeJournalNow(id) }
         for id in Array(dirtyNoteIDs) { _ = await flushNoteBeforeDestructiveOperation(id) }
+        // A save can have cleared its dirty flag while still removing a journal
+        // entry. Keep the old library and its lock alive until it fully finishes.
+        while !savingNoteIDs.isEmpty { await Task.yield() }
+        for operation in journalOperations.values { await operation.value }
         if let conflict,
            let note = notes.first(where: { $0.id == conflict.noteID }) {
             throw NVNVError.fileChanged(note.filename)
@@ -836,11 +1012,14 @@ final class AppModel {
                 reason: "one or more pending changes could not be saved"
             )
         }
-        if let settingsRepository { try await settingsRepository.save(settingsSnapshot()) }
+        for task in cacheTasks.values { await task.value }
+        if !isReadOnly, let settingsRepository { try await settingsRepository.save(settingsSnapshot()) }
     }
 
     private func createNote(title: String) async {
-        guard !isReadOnly, let libraryURL, let repository else { return }
+        guard !isSwitchingLibrary, !isReadOnly, let libraryURL, let repository else { return }
+        activeNoteOperations += 1
+        defer { activeNoteOperations -= 1 }
         do {
             let stem = try FilenamePolicy.sanitizedStem(title)
             let filename = FilenamePolicy.availableFilename(stem: stem, extension: defaultExtension, in: libraryURL)
@@ -894,9 +1073,11 @@ final class AppModel {
     }
 
     func commitRename(to proposedTitle: String) async {
-        guard !isReadOnly, isRenaming, let request = renameRequest,
+        guard !isSwitchingLibrary, !isReadOnly, isRenaming, let request = renameRequest,
               let libraryURL, let repository,
               let note = notes.first(where: { $0.id == request.noteID }) else { return }
+        activeNoteOperations += 1
+        defer { activeNoteOperations -= 1 }
         do {
             let stem = try FilenamePolicy.sanitizedStem(proposedTitle)
             let ext = URL(fileURLWithPath: note.filename).pathExtension
@@ -968,6 +1149,7 @@ final class AppModel {
     }
 
     private func refreshSearch() {
+        guard !isSwitchingLibrary else { return }
         visibleResultTask?.cancel()
         visibleResultTask = nil
         pendingListResort = false
@@ -1090,6 +1272,14 @@ final class AppModel {
         }
         synchronizeSelectedTitlePresentation()
         populateSelectedHighlightRanges()
+        if scrollToSelectionAfterNextSearch {
+            scrollToSelectionAfterNextSearch = false
+            if let selected = resolved.first(where: { selection.contains($0.id) }) {
+                requestListScroll(to: selected.id)
+            } else {
+                requestListScrollToTop()
+            }
+        }
         if scrollToTopAfterNextSearch {
             scrollToTopAfterNextSearch = false
             if let first = resolved.first {
@@ -1170,9 +1360,11 @@ final class AppModel {
     }
 
     private func scheduleCacheUpsert(_ note: Note) {
-        guard let cache, let writer = cacheWriter else { return }
+        guard !isReadOnly, let cache, let writer = cacheWriter else { return }
         let version = SearchIndexVersion(note)
-        Task { [weak self] in
+        let taskID = UUID()
+        cacheTasks[taskID] = Task { [weak self] in
+            defer { self?.cacheTasks[taskID] = nil }
             let succeeded = await writer.upsert(note)
             guard succeeded, let self, self.cache === cache, self.cacheWriter === writer,
                   let current = self.notes.first(where: { $0.id == note.id }),
@@ -1183,11 +1375,13 @@ final class AppModel {
     }
 
     private func scheduleCacheReconciliation(_ reconciliation: CacheReconciliation) {
-        guard let cache, let writer = cacheWriter, !reconciliation.isEmpty else { return }
+        guard !isReadOnly, let cache, let writer = cacheWriter, !reconciliation.isEmpty else { return }
         let notes = reconciliation.indexedUpserts + reconciliation.metadataUpserts
         let ids = reconciliation.removedIDs
         let versions = searchIndexVersions(for: notes)
-        Task { [weak self] in
+        let taskID = UUID()
+        cacheTasks[taskID] = Task { [weak self] in
+            defer { self?.cacheTasks[taskID] = nil }
             let succeeded = await writer.reconcile(reconciliation)
             guard succeeded, let self, self.cache === cache, self.cacheWriter === writer else { return }
             for id in ids where !self.notes.contains(where: { $0.id == id }) {
@@ -1221,7 +1415,9 @@ final class AppModel {
     private func scheduleCacheRebuild(_ authoritative: [Note], cache: SQLiteCache, writer: CacheWriter) {
         isIndexing = true
         let versions = searchIndexVersions(for: authoritative)
-        Task { [weak self] in
+        let taskID = UUID()
+        cacheTasks[taskID] = Task { [weak self] in
+            defer { self?.cacheTasks[taskID] = nil }
             let succeeded = await writer.replaceAll(with: authoritative)
             guard let self, self.cache === cache, self.cacheWriter === writer else { return }
             self.isIndexing = false
@@ -1306,6 +1502,7 @@ final class AppModel {
         journalDeadlineTasks[id] = nil
 
         let preceding = journalOperations[id]
+        let sessionID = librarySessionID
         let operationID = UUID()
         journalOperationIDs[id] = operationID
         let operation = Task { [weak self] in
@@ -1315,6 +1512,7 @@ final class AppModel {
         }
         journalOperations[id] = operation
         await operation.value
+        guard librarySessionID == sessionID else { return }
         if journalOperationIDs[id] == operationID {
             journalOperations[id] = nil
             journalOperationIDs[id] = nil
@@ -1559,7 +1757,10 @@ final class AppModel {
             recomputeDuplicateTitleKeys()
             scanIssues = scan.issues
             refreshSearch()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard generation == reconcileGeneration else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func reconcileTargetedExternalChanges(paths: Set<URL>, libraryURL: URL) async {
@@ -1673,7 +1874,10 @@ final class AppModel {
             scanIssues.removeAll { affectedFilenames.contains($0.filename) }
             scanIssues.append(contentsOf: scan.issues)
             refreshSearch()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard generation == reconcileGeneration else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func replayJournal() async -> [Note] {
@@ -1787,6 +1991,7 @@ final class AppModel {
     }
 
     private func persistSettingsSoon() {
+        guard !isSwitchingLibrary, !isReadOnly else { return }
         settingsTask?.cancel()
         settingsTask = Task {
             try? await Task.sleep(for: .milliseconds(500))

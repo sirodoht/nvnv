@@ -1294,36 +1294,47 @@ body.lightbox-open {
   right: -10px;
   bottom: 34px;
 }
-.bento-details {
+.bento-libraries {
   grid-column: span 12;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 40px;
   min-height: 330px;
   background: var(--yellow);
 }
-.bento-details h3 em {
+.bento-libraries h3 em {
   color: var(--purple);
   font-family: Georgia, serif;
   font-weight: 400;
 }
-.bento-details ul {
-  position: absolute;
-  right: 30px;
-  top: 25px;
-  width: 47%;
+.library-copy p {
+  max-width: 390px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.library-benefits {
   list-style: none;
   margin: 0;
   padding: 0;
   border-top: 1.5px solid var(--ink);
 }
-.bento-details li {
-  display: flex;
+.library-benefits li {
+  display: grid;
+  grid-template-columns: auto 1fr;
   gap: 20px;
   padding: 14px 0;
   border-bottom: 1px solid rgba(21, 21, 21, 0.45);
   font-family: var(--mono);
   font-size: 10px;
+  line-height: 1.65;
 }
-.bento-details li span {
+.library-benefits li > span:first-child {
   color: var(--purple);
+}
+.library-benefits kbd {
+  font: inherit;
+  font-weight: 700;
 }
 
 .shortcut-reference {
@@ -1372,7 +1383,7 @@ body.lightbox-open {
   padding: 14px 0;
   border-top: 1px solid rgba(21, 21, 21, 0.28);
 }
-.shortcut-grid > div:nth-last-child(-n+2) {
+.shortcut-grid > div:last-child {
   border-bottom: 1px solid rgba(21, 21, 21, 0.28);
 }
 .shortcut-grid .shortcut-wide {
@@ -1970,13 +1981,10 @@ body.lightbox-open {
   .bento-files {
     min-height: 440px;
   }
-  .bento-details {
-    min-height: 520px;
-  }
-  .bento-details ul {
-    position: static;
-    width: 100%;
-    margin-top: 40px;
+  .bento-libraries {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    min-height: 0;
   }
   .performance-heading {
     grid-template-columns: 1fr;
@@ -2296,9 +2304,6 @@ body.lightbox-open {
   .safe-orbit {
     right: calc(50% - 115px);
   }
-  .bento-details {
-    min-height: 540px;
-  }
   .shortcut-reference {
     padding: 24px;
   }
@@ -2320,9 +2325,6 @@ body.lightbox-open {
     grid-column: auto;
     grid-template-columns: 1fr;
     gap: 12px;
-  }
-  .shortcut-grid > div:nth-last-child(-n+2) {
-    border-bottom: 0;
   }
   .shortcut-grid > div:last-child {
     border-bottom: 1px solid rgba(21, 21, 21, 0.28);

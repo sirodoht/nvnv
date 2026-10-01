@@ -271,6 +271,12 @@ back/snapback history are session-only and MUST NOT be restored across launches.
 The remembered library, display preferences, and per-note cursor metadata MAY
 persist; cursor metadata is not applied until the user selects a note.
 
+Switching between named libraries within the same process restores each
+library's query, selected notes, selection kind, deliberate deselection, and
+per-note cursor ranges. This does not change fresh-launch behavior. A restored
+selection must refer to an existing note matching the query; cursor ranges are
+clamped against current text. The selected note is brought into view.
+
 ### 6.10 Search execution and SQLite
 
 SQLite accelerates search but does not define search semantics. The application query parser and exact verifier are authoritative for deciding whether a note matches.
@@ -642,6 +648,34 @@ Externally created filenames are never silently rewritten merely to satisfy nvnv
 - Moving a library copies all note files and `.nvnv` recovery material to a staging destination, verifies note counts and content hashes, then switches the authoritative path.
 - A cache that fails verification MAY be rebuilt at the destination; note-file verification determines whether the move succeeded.
 - The old location is not deleted without explicit confirmation.
+
+#### Named library registrations
+
+- nvnv remembers an ordered list of libraries in application preferences, each
+  with a stable ID, display name, and canonical folder path. The legacy last
+  library path is migrated automatically.
+- Display names default to folder names and can be renamed without changing
+  the filesystem. Blank names are rejected. Duplicate display names are allowed;
+  the searchable switcher shows paths to distinguish them.
+- Registering the same canonical folder again selects its existing entry.
+- One library is active at a time. Its name appears above search. Search,
+  creation, and note commands operate only within that library.
+- `Primary-Shift-L` opens a switcher that filters names and paths, supports arrow
+  navigation and Return to open, and Escape to cancel. `Primary-O` adds a library
+  using the folder chooser, which also supports creating a folder.
+- Removing a registration never deletes files or `.nvnv` data. Removing the
+  active library flushes pending edits and returns to the welcome screen;
+  other registrations remain available. Removing an inactive library leaves
+  the active session intact.
+- The welcome screen lists remembered libraries even if the last active folder
+  is unavailable. Failed opens retain registrations and the current session.
+- Opening a destination must prepare its resources before applying its settings
+  or replacing the current library. Conflicts and unsaved edits block switching.
+  Overlapping switches are disabled. Already-started mutations and auxiliary
+  writes finish before releasing the outgoing writer lock.
+- Async search, watcher, and editor callbacks from a previous library session
+  must not modify a new session. Editor undo/find state is reset on switching,
+  including when copied libraries contain identical cached note IDs.
 
 ### 11.6 Single-writer library lock
 

@@ -7,11 +7,23 @@ struct SettingsView: View {
     @State private var fontPanelController = EditorFontPanelController()
     @State private var isForgetConfirmationPresented = false
     @State private var isResetConfirmationPresented = false
+    @State private var isRenameConfirmationPresented = false
+    @State private var libraryName = ""
+    @State private var isSwitcherPresented = false
+    @State private var managedLibrary: NamedLibrary?
 
     var body: some View {
         Form {
             Section("Library") {
                 if let libraryURL = model.libraryURL {
+                    LabeledContent("Name") {
+                        Text(model.activeLibrary?.name ?? libraryURL.lastPathComponent)
+                        Button("Rename…") {
+                            managedLibrary = model.activeLibrary
+                            libraryName = model.activeLibrary?.name ?? ""
+                            isRenameConfirmationPresented = true
+                        }
+                    }
                     LabeledContent("Notes folder") {
                         Text(libraryURL.path)
                             .foregroundStyle(.secondary)
@@ -20,14 +32,19 @@ struct SettingsView: View {
                             .help(libraryURL.path)
                     }
                     HStack {
-                        Button("Choose Another Folder…") { Task { await model.chooseLibrary() } }
+                        Button("Switch Library…") { isSwitcherPresented = true }
+                        Button("Add Library…") { Task { await model.chooseLibrary() } }
                         Spacer()
-                        Button("Forget Library…", role: .destructive) {
+                        Button("Remove from List…") {
+                            managedLibrary = model.activeLibrary
                             isForgetConfirmationPresented = true
                         }
                     }
                 } else {
-                    Button("Choose Notes Folder…") { Task { await model.chooseLibrary() } }
+                    Button("Add Library…") { Task { await model.chooseLibrary() } }
+                    if !model.libraries.isEmpty {
+                        Button("Switch Library…") { isSwitcherPresented = true }
+                    }
                 }
             }
             Section("Note List") {
@@ -63,25 +80,57 @@ struct SettingsView: View {
                 Button("Reset Settings…", role: .destructive) {
                     isResetConfirmationPresented = true
                 }
-                .disabled(model.libraryURL == nil)
+                .disabled(model.libraryURL == nil || model.isReadOnly)
             } footer: {
                 Text("Restores settings for this library. Note files are never changed.")
             }
         }
         .formStyle(.grouped)
+        .disabled(model.isSwitchingLibrary)
         .padding().frame(width: 560, height: 650)
         .onDisappear { fontPanelController.stop() }
-        .alert("Forget this library?", isPresented: $isForgetConfirmationPresented) {
+        .sheet(isPresented: $isSwitcherPresented, onDismiss: finishLibrarySwitcher) {
+            LibrarySwitcher(model: model)
+        }
+        .alert("Rename Library", isPresented: $isRenameConfirmationPresented) {
+            TextField("Library name", text: $libraryName)
             Button("Cancel", role: .cancel) {}
-            Button("Forget Library", role: .destructive) { Task { await model.forgetLibrary() } }
+            Button("Rename") {
+                if let library = managedLibrary { model.renameLibrary(library, to: libraryName) }
+            }
+            .disabled(libraryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
-            Text("nvnv will return to the welcome screen and stop remembering this folder. Your notes and the folder’s .nvnv data will remain untouched.")
+            Text("The library’s folder name will stay the same.")
+        }
+        .alert("Remove Library from List?", isPresented: $isForgetConfirmationPresented) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove from List") {
+                if let library = managedLibrary { Task { await model.removeLibrary(library) } }
+            }
+        } message: {
+            Text("Remove “\(managedLibrary?.name ?? "")” from nvnv’s library list? All notes and the folder’s .nvnv data will remain on disk.")
         }
         .alert("Reset library settings?", isPresented: $isResetConfirmationPresented) {
             Button("Cancel", role: .cancel) {}
             Button("Reset Settings", role: .destructive) { Task { await model.resetSettings() } }
         } message: {
             Text("Display, editor, safety, and file preferences for this library will return to their defaults. Note files will remain untouched.")
+        }
+    }
+
+    private func finishLibrarySwitcher() {
+        switch model.librarySwitcherAction {
+        case .rename(let library):
+            model.librarySwitcherAction = nil
+            managedLibrary = library
+            libraryName = library.name
+            isRenameConfirmationPresented = true
+        case .remove(let library):
+            model.librarySwitcherAction = nil
+            managedLibrary = library
+            isForgetConfirmationPresented = true
+        default:
+            model.finishLibrarySwitcher()
         }
     }
 

@@ -5,50 +5,60 @@ struct NVNVCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button(model.libraryURL == nil ? "Open Notes Folder…" : "Choose Another Notes Folder…") {
+            Button("Add Library…") {
                 Task { await model.chooseLibrary() }
             }
-                .keyboardShortcut("o")
-            if model.libraryURL != nil {
+            .keyboardShortcut("o")
+            .disabled(model.isSwitchingLibrary)
+            Button("Switch Library…") { model.showLibrarySwitcher() }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .disabled(model.isSwitchingLibrary)
+            if let library = model.activeLibrary {
                 Divider()
-                Button("Forget Library…") { Task { await model.confirmAndForgetLibrary() } }
+                Button("Rename Library…") { model.beginRenamingLibrary(library) }
+                    .disabled(model.isSwitchingLibrary)
+                Button("Remove Library from List…") { model.libraryToRemove = library }
+                    .disabled(model.isSwitchingLibrary)
             }
         }
         CommandMenu("Note") {
-            Button("Focus Search") { model.focusSearch() }.keyboardShortcut("l")
-            Button("Next Note") { model.moveSelection(by: 1) }.keyboardShortcut("j")
-            Button("Previous Note") { model.moveSelection(by: -1) }.keyboardShortcut("k")
-            Button("Deselect Note") { model.returnToSearch() }.keyboardShortcut("d")
-            Divider()
-            Button("Rename Note") { model.startRename() }.keyboardShortcut("r")
-                .disabled(model.isReadOnly || model.selection.count != 1)
-            Button("Move to Trash") { Task { await model.deleteSelection() } }
-                .disabled(model.isReadOnly || model.selection.isEmpty)
-            Button("Show in Finder") { model.revealSelectedNote() }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
-                .disabled(model.selection.count != 1)
-            Button("Back") { model.navigateBack() }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-            Divider()
-            Button("Outdent") { model.performEditorCommand(.outdent) }
-                .keyboardShortcut("[", modifiers: .command)
-            Button("Indent") { model.performEditorCommand(.indent) }
-                .keyboardShortcut("]", modifiers: .command)
-            Divider()
-            Button("Find…") { model.performEditorCommand(.find) }
-                .keyboardShortcut("f", modifiers: .command)
-                .disabled(model.selection.count != 1)
-            Button("Find Next") { model.performEditorCommand(.findNext) }
-                .keyboardShortcut("g", modifiers: .command)
-                .disabled(model.selection.count != 1)
-            Button("Find Previous") { model.performEditorCommand(.findPrevious) }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(model.selection.count != 1)
-            Divider()
-            Button("Open URL at Cursor") { model.performEditorCommand(.openURL) }
-            if model.conflict != nil {
-                Button("Resolve Conflict…") { model.showConflictResolver() }
+            Group {
+                Button("Focus Search") { model.focusSearch() }.keyboardShortcut("l")
+                Button("Next Note") { model.moveSelection(by: 1) }.keyboardShortcut("j")
+                Button("Previous Note") { model.moveSelection(by: -1) }.keyboardShortcut("k")
+                Button("Deselect Note") { model.returnToSearch() }.keyboardShortcut("d")
+                Divider()
+                Button("Rename Note") { model.startRename() }.keyboardShortcut("r")
+                    .disabled(model.isReadOnly || model.selection.count != 1)
+                Button("Move to Trash") { Task { await model.deleteSelection() } }
+                    .disabled(model.isReadOnly || model.selection.isEmpty)
+                Button("Show in Finder") { model.revealSelectedNote() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .disabled(model.selection.count != 1)
+                Button("Back") { model.navigateBack() }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                Divider()
+                Button("Outdent") { model.performEditorCommand(.outdent) }
+                    .keyboardShortcut("[", modifiers: .command)
+                Button("Indent") { model.performEditorCommand(.indent) }
+                    .keyboardShortcut("]", modifiers: .command)
+                Divider()
+                Button("Find…") { model.performEditorCommand(.find) }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(model.selection.count != 1)
+                Button("Find Next") { model.performEditorCommand(.findNext) }
+                    .keyboardShortcut("g", modifiers: .command)
+                    .disabled(model.selection.count != 1)
+                Button("Find Previous") { model.performEditorCommand(.findPrevious) }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(model.selection.count != 1)
+                Divider()
+                Button("Open URL at Cursor") { model.performEditorCommand(.openURL) }
+                if model.conflict != nil {
+                    Button("Resolve Conflict…") { model.showConflictResolver() }
+                }
             }
+            .disabled(model.isSwitchingLibrary)
         }
     }
 }

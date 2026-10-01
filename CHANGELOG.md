@@ -5,6 +5,21 @@ All notable changes to nvnv are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Named libraries with a picker, searchable Command-Shift-L switcher, and
+  add, rename, and remove-from-list actions.
+- Restoration of each library's search, selection, and cursor positions when
+  switching within a session; new launches retain the fresh search behavior.
+
+### Fixed
+
+- Failed library opens preserve the current library's settings and context.
+- Library switches drain pending writes and isolate old asynchronous callbacks.
+- Read-only library sessions no longer persist settings or schedule cache writes.
+
 ## [1.5.0] - 2026-08-21
 
 ### Changed

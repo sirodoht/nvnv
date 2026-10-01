@@ -12,6 +12,7 @@ struct ContentView: View {
         Group {
             if model.libraryURL != nil || model.isRestoringLibrary {
                 libraryView
+                    .id(model.librarySessionID)
             } else {
                 WelcomeView(model: model)
             }
@@ -20,8 +21,13 @@ struct ContentView: View {
         .background(WindowChromeConfigurator())
         .task { await model.restoreLastLibrary() }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { Task { try? await model.flushAll() } }
+            if phase != .active, !model.isSwitchingLibrary { Task { try? await model.flushAll() } }
         }
+        .onChange(of: model.librarySessionID) { _, _ in
+            undoRegistry = EditorUndoRegistry()
+            findSession = EditorFindSession()
+        }
+        .modifier(LibraryManagement(model: model))
         .alert("nvnv", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
@@ -39,6 +45,7 @@ struct ContentView: View {
 
     private var libraryView: some View {
         VStack(spacing: 0) {
+            LibraryPicker(model: model)
             SearchBar(model: model)
             if model.isReadOnly {
                 Text("Read-only mode. Another nvnv process current has write access.")
@@ -77,6 +84,7 @@ struct ContentView: View {
                 }
             }
         }
+        .disabled(model.isSwitchingLibrary)
     }
 }
 
@@ -128,9 +136,37 @@ private struct WelcomeView: View {
     let model: AppModel
     var body: some View {
         VStack(spacing: 18) {
-            Button("Open Notes Folder…") { Task { await model.chooseLibrary() } }
+            if !model.libraries.isEmpty {
+                Text("Libraries").font(.title2)
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(model.libraries) { library in
+                            Button {
+                                Task { await model.switchLibrary(to: library) }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(library.name)
+                                    Text(library.path).font(.caption).foregroundStyle(.secondary)
+                                        .lineLimit(1).truncationMode(.middle)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(6)
+                            }
+                            .contextMenu {
+                                Button("Rename…") { model.beginRenamingLibrary(library) }
+                                Button("Remove from List…") { model.libraryToRemove = library }
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 280)
+            }
+            Button("Add Library…") { Task { await model.chooseLibrary() } }
                 .buttonStyle(.borderedProminent).controlSize(.large)
+            if model.isSwitchingLibrary { ProgressView("Opening library…") }
         }
+        .padding(32)
+        .disabled(model.isSwitchingLibrary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

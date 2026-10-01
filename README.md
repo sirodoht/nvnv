@@ -27,6 +27,8 @@ notes as you type, opens a matching note, or creates a note from a new title.
 - The selected notes folder is authoritative. nvnv watches for external
   changes, uses atomic writes and crash-recovery journals, presents edit
   conflicts, and prevents two processes from writing to a library at once.
+- Multiple folders can be remembered as named libraries. A picker and keyboard
+  switcher change the active library; search and note creation stay within it.
 - nvnv focuses on the local plain-text workflow. It does not
   include tags, wiki links, saved searches or bookmarks, encryption, a global
   activation shortcut, external-editor integration, rich-text or HTML
@@ -47,8 +49,27 @@ notes as you type, opens a matching note, or creates a note from a new title.
 - `⇧⌘R` — show the selected note in Finder.
 - `⌘[` / `⌘]` — outdent/indent.
 - `Tab` / `Shift-Tab` — indent/outdent in the editor when “Tab indents text” is enabled.
-- `⌘O` — choose another notes folder.
+- `⌘O` — add a library by choosing or creating a notes folder.
+- `⇧⌘L` — find and switch to a named library.
 - Standard macOS editing shortcuts work in the editor: `⌘Z`, `⇧⌘Z`, `⌘F`, `⌘X`, `⌘C`, `⌘V`, and `⌘A`.
+
+## Named libraries
+
+Use the library picker above search or **File → Add Library…** to add a notes
+folder. The folder chooser's **New Folder** button creates an empty library.
+Existing users' last notes folder is remembered automatically. Library names
+default to folder names; **Rename Library…** changes only nvnv's display name.
+
+Press `⇧⌘L`, type a name or part of a folder path, use the arrow keys, and press
+Return to switch. Escape cancels. The switcher's actions menu can rename or
+remove its selected entry, including a library whose folder is unavailable.
+**Remove from List** never deletes notes or `.nvnv` data.
+
+Switching saves pending edits and restores that library's search, selection,
+and cursor positions from the current session. Display and editor settings are
+independent per library. After quitting and reopening, nvnv opens the last
+library with an empty search and no note selected. An unavailable folder stays
+in the list so it can be retried after reconnecting a drive, or removed.
 
 ## Build and run from source
 
