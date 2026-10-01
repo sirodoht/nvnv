@@ -27,8 +27,17 @@ final class EditorFindSession {
 final class SessionTextView: NSTextView {
     var sessionUndoManager: UndoManager?
     override var undoManager: UndoManager? { sessionUndoManager ?? super.undoManager }
+    var onFocus: (() -> Void)?
 
     private let supportedURLDetector = SupportedURLDetector()
+
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        // textDidBeginEditing waits for a text change; clicking into a note
+        // must enter note mode immediately, even if no text is edited.
+        onFocus?()
+        return true
+    }
 
     func refreshDetectedLinks() {
         guard let supportedURLDetector, let storage = textStorage else { return }
@@ -128,6 +137,7 @@ struct PlainTextEditor: NSViewRepresentable {
     }
 
     private func configure(_ text: SessionTextView, coordinator: Coordinator) {
+        text.onFocus = { [weak coordinator] in coordinator?.parent.onFocus() }
         text.isEditable = editable
         text.isSelectable = true
         undoRegistry.applyInvalidation(for: note.id, generation: undoInvalidationGeneration)
@@ -235,10 +245,6 @@ struct PlainTextEditor: NSViewRepresentable {
 
         func textDidEndEditing(_ notification: Notification) {
             parent.onEditingEnded()
-        }
-
-        func textDidBeginEditing(_ notification: Notification) {
-            parent.onFocus()
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
