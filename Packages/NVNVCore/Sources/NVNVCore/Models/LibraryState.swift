@@ -15,6 +15,11 @@ public struct LibrarySettings: Codable, Equatable, Sendable {
     public var showTitleColumn: Bool?
     /// Optional so settings written before column reordering continue to decode.
     public var noteListColumnOrder: [NoteListColumn]?
+    public var titleColumnWidth: Double?
+    public var modifiedColumnWidth: Double?
+    public var createdColumnWidth: Double?
+    public var windowFrame: LibraryWindowFrame?
+    public var windowIsFullScreen: Bool?
     public var showExcerpts = true
     public var confirmDeletion = true
     public var highlightSearch = true
@@ -28,6 +33,20 @@ public struct LibrarySettings: Codable, Equatable, Sendable {
     public var defaultExtension = "txt"
 
     public init() {}
+}
+
+public struct LibraryWindowFrame: Codable, Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
 }
 
 public enum NoteListColumn: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {

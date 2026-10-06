@@ -21,6 +21,15 @@ struct LibraryPicker: View {
                 }
                 Divider()
                 Button("Switch Library…") { model.showLibrarySwitcher() }
+                Menu("Open in New Window") {
+                    ForEach(model.libraries) { library in
+                        Button(library.name) {
+                            Task { await model.switchLibrary(to: library, inNewWindow: true) }
+                        }
+                        .help(library.path)
+                    }
+                }
+                .disabled(model.libraries.isEmpty)
                 Button("Add Library…") { Task { await model.chooseLibrary() } }
                 if let library = model.activeLibrary {
                     Divider()
@@ -108,6 +117,11 @@ struct LibrarySwitcher: View {
                 }
                 if let library = matches.first(where: { $0.id == selectedID }) {
                     Menu {
+                        Button("Open in New Window") {
+                            model.librarySwitcherAction = .openInNewWindow(library)
+                            dismiss()
+                        }
+                        Divider()
                         Button("Rename…") {
                             model.librarySwitcherAction = .rename(library)
                             dismiss()
@@ -124,6 +138,12 @@ struct LibrarySwitcher: View {
                     .accessibilityLabel("Manage selected library")
                 }
                 Spacer()
+                Button("New Window") {
+                    guard let library = matches.first(where: { $0.id == selectedID }) else { return }
+                    model.librarySwitcherAction = .openInNewWindow(library)
+                    dismiss()
+                }
+                .disabled(!matches.contains { $0.id == selectedID })
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Open") { openSelection() }
                     .keyboardShortcut(.defaultAction)

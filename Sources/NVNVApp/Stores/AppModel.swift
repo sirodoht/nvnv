@@ -8,8 +8,15 @@ import OSLog
 @Observable
 final class AppModel {
     var libraryURL: URL?
-    private(set) var libraryCatalog: LibraryCatalog
-    private(set) var isSwitchingLibrary = false
+    let catalogStore: LibraryCatalogStore
+    weak var windowCoordinator: LibraryWindowCoordinator?
+    let windowID = UUID()
+    private(set) var libraryCatalog: LibraryCatalog {
+        get { catalogStore.catalog }
+        set { catalogStore.catalog = newValue }
+    }
+    private var libraryTransitionInProgress = false
+    var isSwitchingLibrary: Bool { libraryTransitionInProgress || windowCoordinator?.isQuitting == true }
     private(set) var librarySessionID = UUID()
     var isLibrarySwitcherPresented = false
     var libraryToRename: NamedLibrary?
@@ -51,6 +58,11 @@ final class AppModel {
     var noteListColumnOrder: [NoteListColumn] = [.title, .modified, .created] {
         didSet { persistSettingsSoon() }
     }
+    var titleColumnWidth = 0.0 { didSet { persistSettingsSoon() } }
+    var modifiedColumnWidth = 150.0 { didSet { persistSettingsSoon() } }
+    var createdColumnWidth = 130.0 { didSet { persistSettingsSoon() } }
+    var windowFrame: LibraryWindowFrame? { didSet { persistSettingsSoon() } }
+    var windowIsFullScreen = false { didSet { persistSettingsSoon() } }
     var showExcerpts = true { didSet { persistSettingsSoon() } }
     var confirmDeletion = true { didSet { persistSettingsSoon() } }
     var highlightSearch = true { didSet { persistSettingsSoon() } }
@@ -113,14 +125,11 @@ final class AppModel {
     private var cacheTasks: [UUID: Task<Void, Never>] = [:]
     private var scrollToSelectionAfterNextSearch = false
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(userDefaults: UserDefaults = .standard, catalogStore: LibraryCatalogStore? = nil) {
         self.userDefaults = userDefaults
-        let catalog = LibraryCatalog.load(
-            data: userDefaults.data(forKey: "namedLibraries"),
-            legacyPath: userDefaults.string(forKey: "lastLibraryPath")
-        )
-        libraryCatalog = catalog
-        isRestoringLibrary = catalog.activeLibrary != nil
+        let store = catalogStore ?? LibraryCatalogStore(userDefaults: userDefaults)
+        self.catalogStore = store
+        isRestoringLibrary = catalogStore == nil && store.catalog.activeLibrary != nil
     }
 
     var libraries: [NamedLibrary] { libraryCatalog.libraries }
@@ -134,7 +143,11 @@ final class AppModel {
         isLibrarySwitcherPresented = true
     }
 
-    func switchLibrary(to library: NamedLibrary) async {
+    func switchLibrary(to library: NamedLibrary, inNewWindow: Bool = false) async {
+        if let windowCoordinator {
+            await windowCoordinator.open(library.url, from: self, inNewWindow: inNewWindow)
+            return
+        }
         guard libraries.contains(where: { $0.id == library.id }) else { return }
         await openLibrary(library.url, confirmedAuxiliaryCreation: true)
     }
@@ -155,6 +168,8 @@ final class AppModel {
         switch action {
         case .open(let library):
             Task { await switchLibrary(to: library) }
+        case .openInNewWindow(let library):
+            Task { await switchLibrary(to: library, inNewWindow: true) }
         case .add:
             Task { await chooseLibrary() }
         case .rename(let library):
@@ -167,14 +182,7 @@ final class AppModel {
     }
 
     private func persistLibraryCatalog() {
-        if let data = try? JSONEncoder().encode(libraryCatalog) {
-            userDefaults.set(data, forKey: "namedLibraries")
-        }
-        if let active = libraryCatalog.activeLibrary {
-            userDefaults.set(active.path, forKey: "lastLibraryPath")
-        } else {
-            userDefaults.removeObject(forKey: "lastLibraryPath")
-        }
+        catalogStore.persist()
     }
 
     var selectedNote: Note? {
@@ -244,6 +252,7 @@ final class AppModel {
     }
 
     func restoreLastLibrary() async {
+        guard windowCoordinator == nil else { return }
         guard libraryURL == nil else {
             isRestoringLibrary = false
             return
@@ -277,7 +286,13 @@ final class AppModel {
             alert.addButton(withTitle: "Cancel")
             confirmed = alert.runModal() == .alertFirstButtonReturn
         }
-        if confirmed { await openLibrary(url, confirmedAuxiliaryCreation: true) }
+        if confirmed {
+            if let windowCoordinator {
+                await windowCoordinator.open(url, from: self, inNewWindow: false)
+            } else {
+                await openLibrary(url, confirmedAuxiliaryCreation: true)
+            }
+        }
     }
 
     func forgetLibrary() async {
@@ -286,6 +301,14 @@ final class AppModel {
     }
 
     func removeLibrary(_ library: NamedLibrary) async {
+        if let windowCoordinator {
+            await windowCoordinator.remove(library, from: self)
+        } else {
+            await removeLibraryRegistration(library)
+        }
+    }
+
+    func removeLibraryRegistration(_ library: NamedLibrary) async {
         guard !isSwitchingLibrary, libraries.contains(where: { $0.id == library.id }) else { return }
         guard activeLibrary?.id == library.id else {
             libraryCatalog.remove(library.id)
@@ -310,7 +333,7 @@ final class AppModel {
     }
 
     private func beginLibraryTransition() {
-        isSwitchingLibrary = true
+        libraryTransitionInProgress = true
         reconcileGeneration += 1
         searchGeneration += 1
         searchTask?.cancel()
@@ -319,7 +342,7 @@ final class AppModel {
     }
 
     private func endLibraryTransition() {
-        isSwitchingLibrary = false
+        libraryTransitionInProgress = false
         refreshSearch()
         // Watcher events are suppressed during preparation, including failed
         // opens. Rescan the surviving/installed library to close that gap.
@@ -404,7 +427,10 @@ final class AppModel {
         guard !isSwitchingLibrary, !isReadOnly, let settingsRepository else { return }
         activeNoteOperations += 1
         defer { activeNoteOperations -= 1 }
-        let defaults = LibrarySettings()
+        var defaults = LibrarySettings()
+        defaults.titleColumnWidth = 0
+        defaults.modifiedColumnWidth = 150
+        defaults.createdColumnWidth = 130
         apply(defaults)
         cancelRename()
         isShowingSelectedNoteTitle = false
@@ -414,13 +440,6 @@ final class AppModel {
         selection = defaults.selectedNoteIDs
         selectionKind = defaults.selectionKind
         navigationHistory = []
-        for key in [
-            "noteListTitleColumnWidth",
-            "noteListModifiedDateColumnWidth",
-            "noteListCreatedDateColumnWidth",
-        ] {
-            userDefaults.removeObject(forKey: key)
-        }
         settingsTask?.cancel()
         do {
             try await settingsRepository.save(settingsSnapshot())
@@ -492,10 +511,9 @@ final class AppModel {
             }.value
 
             if let outgoingURL = libraryURL {
-                librarySessions[outgoingURL.path] = LibrarySession(
-                    notes: notes, query: query, selection: selection, selectionKind: selectionKind,
-                    suppressAutomaticSelection: automaticSelectionSuppressedQuery == query
-                )
+                let session = sessionSnapshot()
+                librarySessions[outgoingURL.path] = session
+                windowCoordinator?.rememberSession(session, at: outgoingURL)
             }
             clearLibraryRuntime()
             self.libraryURL = selectedURL
@@ -567,10 +585,45 @@ final class AppModel {
             libraryCatalog.activate(selectedURL)
             persistLibraryCatalog()
             restoreLibrarySession(at: selectedURL)
+            windowCoordinator?.didOpen(self)
             focusSearch()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    func sessionSnapshot() -> LibrarySession {
+        LibrarySession(notes: notes, query: query, selection: selection, selectionKind: selectionKind,
+                       suppressAutomaticSelection: automaticSelectionSuppressedQuery == query)
+    }
+
+    func rememberSession(_ session: LibrarySession, at url: URL) {
+        librarySessions[url.path] = session
+    }
+
+    /// Freeze mutations before draining writes. Keep the lock until close is committed.
+    func prepareForWindowClose() async throws {
+        while libraryTransitionInProgress { await Task.yield() }
+        beginLibraryTransition()
+        do {
+            while activeNoteOperations > 0 { await Task.yield() }
+            try await flushAll()
+        } catch {
+            endLibraryTransition()
+            throw error
+        }
+    }
+
+    func cancelWindowClose() {
+        // A failed flush may already have ended this model's transition while
+        // the application was still quitting. Restart search and reconciliation
+        // after the application-wide freeze is lifted in either case.
+        endLibraryTransition()
+    }
+
+    func finishWindowClose() {
+        clearLibraryRuntime()
+        libraryTransitionInProgress = false
     }
 
     private func restoreLibrarySession(at url: URL) {
@@ -1937,6 +1990,11 @@ final class AppModel {
         showCreatedDate = settings.showCreatedDate
         noteListColumnOrder = Self.normalizedNoteListColumnOrder(settings.noteListColumnOrder)
         if visibleNoteListColumns.isEmpty { showTitleColumn = true }
+        titleColumnWidth = settings.titleColumnWidth ?? userDefaults.double(forKey: "noteListTitleColumnWidth")
+        modifiedColumnWidth = settings.modifiedColumnWidth ?? (userDefaults.object(forKey: "noteListModifiedDateColumnWidth") as? Double ?? 150)
+        createdColumnWidth = settings.createdColumnWidth ?? (userDefaults.object(forKey: "noteListCreatedDateColumnWidth") as? Double ?? 130)
+        windowFrame = settings.windowFrame
+        windowIsFullScreen = settings.windowIsFullScreen ?? false
         showExcerpts = settings.showExcerpts
         confirmDeletion = settings.confirmDeletion
         highlightSearch = settings.highlightSearch
@@ -1968,6 +2026,11 @@ final class AppModel {
         settings.showModifiedDate = showModifiedDate
         settings.showCreatedDate = showCreatedDate
         settings.noteListColumnOrder = noteListColumnOrder
+        settings.titleColumnWidth = titleColumnWidth
+        settings.modifiedColumnWidth = modifiedColumnWidth
+        settings.createdColumnWidth = createdColumnWidth
+        settings.windowFrame = windowFrame
+        settings.windowIsFullScreen = windowIsFullScreen
         settings.showExcerpts = showExcerpts
         settings.confirmDeletion = confirmDeletion
         settings.highlightSearch = highlightSearch

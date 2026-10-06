@@ -28,7 +28,8 @@ notes as you type, opens a matching note, or creates a note from a new title.
   changes, uses atomic writes and crash-recovery journals, presents edit
   conflicts, and prevents two processes from writing to a library at once.
 - Multiple folders can be remembered as named libraries. A picker and keyboard
-  switcher change the active library; search and note creation stay within it.
+  switcher change the active library. Different libraries can stay open in
+  independent windows; search and note creation stay within each window.
 - nvnv focuses on the local plain-text workflow. It does not
   include tags, wiki links, saved searches or bookmarks, encryption, a global
   activation shortcut, external-editor integration, rich-text or HTML
@@ -49,6 +50,7 @@ notes as you type, opens a matching note, or creates a note from a new title.
 - `⇧⌘R` — show the selected note in Finder.
 - `⌘[` / `⌘]` — outdent/indent.
 - `Tab` / `Shift-Tab` — indent/outdent in the editor when “Tab indents text” is enabled.
+- `⌘N` — open a new library window.
 - `⌘O` — add a library by choosing or creating a notes folder.
 - `⇧⌘L` — find and switch to a named library.
 - Standard macOS editing shortcuts work in the editor: `⌘Z`, `⇧⌘Z`, `⌘F`, `⌘X`, `⌘C`, `⌘V`, and `⌘A`.
@@ -61,15 +63,23 @@ Existing users' last notes folder is remembered automatically. Library names
 default to folder names; **Rename Library…** changes only nvnv's display name.
 
 Press `⇧⌘L`, type a name or part of a folder path, use the arrow keys, and press
-Return to switch. Escape cancels. The switcher's actions menu can rename or
-remove its selected entry, including a library whose folder is unavailable.
+Return to switch. Escape cancels. Choose **New Window** to keep the current
+library open alongside another. Opening a library that already has a window
+brings that window forward. The switcher's actions menu can rename or remove
+its selected entry, including a library whose folder is unavailable.
 **Remove from List** never deletes notes or `.nvnv` data.
 
 Switching saves pending edits and restores that library's search, selection,
 and cursor positions from the current session. Display and editor settings are
-independent per library. After quitting and reopening, nvnv opens the last
-library with an empty search and no note selected. An unavailable folder stays
-in the list so it can be retried after reconnecting a drive, or removed.
+independent per library, including column widths, divider position, window size
+and position, and full-screen state. Menus act on the focused library window.
+Settings remain targeted at the library from which they were opened.
+
+Closing a window saves its changes and keeps its library registration. Quitting
+saves every open library; relaunch restores all previously open library windows
+with empty searches and no notes selected. An unavailable folder stays in the
+list and restoration set so it can be retried after reconnecting a drive, or
+removed. Removing a library that is open unloads it in its owning window.
 
 ## Build and run from source
 
@@ -88,8 +98,12 @@ Codex **Run** action is wired to this script.
 
 ```bash
 swift test --package-path Packages/NVNVCore
+./script/test_models.sh
 swift run --package-path Packages/NVNVCore nvnv-probes
 ```
+
+The model test script runs without launching the app or opening windows. It
+also covers independent library sessions, restoration, layout, and save handling.
 
 The tests cover query semantics, Unicode matching, deterministic title
 selection, filename safety, UTF-8/BOM/CRLF scanning, symlink exclusion,

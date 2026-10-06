@@ -111,7 +111,10 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
                 let contentView = window.contentView
             else { return }
 
-            if titlebar.subviews.contains(where: { $0.identifier == Self.titleIdentifier }) { return }
+            if let label = titlebar.subviews.first(where: { $0.identifier == Self.titleIdentifier }) as? NSTextField {
+                label.stringValue = window.title
+                return
+            }
 
             let label = DraggableWindowTitle(labelWithString: window.title)
             label.identifier = Self.titleIdentifier
@@ -153,6 +156,9 @@ private struct WelcomeView: View {
                                 .padding(6)
                             }
                             .contextMenu {
+                                Button("Open in New Window") {
+                                    Task { await model.switchLibrary(to: library, inNewWindow: true) }
+                                }
                                 Button("Rename…") { model.beginRenamingLibrary(library) }
                                 Button("Remove from List…") { model.libraryToRemove = library }
                             }

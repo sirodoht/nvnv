@@ -3,6 +3,7 @@ import NVNVCore
 
 enum LibrarySwitcherAction {
     case open(NamedLibrary)
+    case openInNewWindow(NamedLibrary)
     case add
     case rename(NamedLibrary)
     case remove(NamedLibrary)

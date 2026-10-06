@@ -7,9 +7,6 @@ struct NoteListView: View {
     @Environment(\.locale) private var locale
     @Environment(\.calendar) private var calendar
     @Environment(\.timeZone) private var timeZone
-    @AppStorage("noteListTitleColumnWidth") private var titleColumnWidth = 0.0
-    @AppStorage("noteListModifiedDateColumnWidth") private var modifiedColumnWidth = 150.0
-    @AppStorage("noteListCreatedDateColumnWidth") private var createdColumnWidth = 130.0
 
     var body: some View {
         NativeNoteTable(
@@ -28,9 +25,9 @@ struct NoteListView: View {
             locale: locale,
             calendar: calendar,
             timeZone: timeZone,
-            titleColumnWidth: $titleColumnWidth,
-            modifiedColumnWidth: $modifiedColumnWidth,
-            createdColumnWidth: $createdColumnWidth
+            titleColumnWidth: $model.titleColumnWidth,
+            modifiedColumnWidth: $model.modifiedColumnWidth,
+            createdColumnWidth: $model.createdColumnWidth
         )
     }
 }

@@ -130,6 +130,7 @@ In vertical layout:
 nvnv MUST remember, per library:
 
 - Divider position
+- Note-list column widths
 - Window size and position where the platform permits it
 - Full-screen state where restoring it follows platform conventions
 
@@ -257,7 +258,7 @@ unrelated pre-search list offset.
 
 ### 6.9 Fresh launch state
 
-After opening the remembered library on a new application launch, nvnv MUST:
+For each library window restored on a new application launch, nvnv MUST:
 
 - clear the search field;
 - show the complete list in its configured sort order;
@@ -268,7 +269,7 @@ After opening the remembered library on a new application launch, nvnv MUST:
 
 Query text, selected note IDs, selection kind, note-list position, and
 back/snapback history are session-only and MUST NOT be restored across launches.
-The remembered library, display preferences, and per-note cursor metadata MAY
+The open library windows, display preferences, and per-note cursor metadata MAY
 persist; cursor metadata is not applied until the user selects a note.
 
 Switching between named libraries within the same process restores each
@@ -643,7 +644,7 @@ Externally created filenames are never silently rewritten merely to satisfy nvnv
 - The user can create a library or open an existing directory.
 - nvnv MUST reject a path that is unreadable, unwritable, or inside the system trash.
 - Opening an existing folder requires confirmation before nvnv creates `.nvnv` auxiliary data.
-- Opening or switching libraries flushes pending edits in the current library first.
+- Replacing a window's library flushes pending edits in its current library first. Opening an independent library window leaves other sessions running.
 - On first open and after cache loss, nvnv scans every recognized root-level file and builds the index.
 - Moving a library copies all note files and `.nvnv` recovery material to a staging destination, verifies note counts and content hashes, then switches the authoritative path.
 - A cache that fails verification MAY be rebuilt at the destination; note-file verification determines whether the move succeeded.
@@ -658,15 +659,28 @@ Externally created filenames are never silently rewritten merely to satisfy nvnv
   the filesystem. Blank names are rejected. Duplicate display names are allowed;
   the searchable switcher shows paths to distinguish them.
 - Registering the same canonical folder again selects its existing entry.
-- One library is active at a time. Its name appears above search. Search,
-  creation, and note commands operate only within that library.
+- One library is active per window, and each canonical library has at most one
+  window. Different libraries have independent live sessions. Search, creation,
+  and note commands operate within the focused window's library.
+- The switcher can open a library in a new window. Opening an already-open
+  library brings its existing window forward and leaves the source intact.
+  Opening an unrelated window is not blocked by the source library's conflicts.
+- Closing a library window flushes its pending writes before releasing resources
+  and keeps its registration. Clean quit flushes every open library; a failure
+  cancels quit and leaves all surviving sessions usable.
+- Relaunch restores all previously open library windows, each with an empty query
+  and no selection. Explicitly closed windows are excluded. Unavailable folders
+  keep their registrations and restoration entries while other libraries open.
+- Column widths, divider position, window frame, and full-screen state are
+  remembered per library. Settings target the library from which they were
+  opened, even when focus moves to another window.
 - `Primary-Shift-L` opens a switcher that filters names and paths, supports arrow
   navigation and Return to open, and Escape to cancel. `Primary-O` adds a library
   using the folder chooser, which also supports creating a folder.
 - Removing a registration never deletes files or `.nvnv` data. Removing the
-  active library flushes pending edits and returns to the welcome screen;
-  other registrations remain available. Removing an inactive library leaves
-  the active session intact.
+  open library flushes pending edits and returns its owning window to the
+  welcome screen; other windows and registrations remain available. Removing
+  a closed library leaves all live sessions intact.
 - The welcome screen lists remembered libraries even if the last active folder
   is unavailable. Failed opens retain registrations and the current session.
 - Opening a destination must prepare its resources before applying its settings
@@ -684,7 +698,7 @@ At most one nvnv process may hold write access to a library.
 - A process MUST acquire an operating-system-backed exclusive lock inside `.nvnv` before replaying recovery data, modifying note files, updating shared auxiliary data, or beginning file reconciliation that can write.
 - Lock ownership MUST be determined by the live operating-system lock, not merely by the existence, timestamp, or recorded process ID of a lock file.
 - Lock metadata MAY record process ID, application version, host, and acquisition time for diagnostics, but it is not authority.
-- The lock is held for the entire writable library session and released only after pending file and journal writes flush during library switch or clean quit.
+- The lock is held for the entire writable library session and released only after pending file and journal writes flush during library switch, window close, or clean quit.
 - Process termination or a crash MUST cause the operating system to release the live lock without requiring the user to delete a stale file manually.
 
 When another nvnv process already owns the lock:
@@ -730,7 +744,7 @@ Step 4 determines whether the note is saved. Failure of step 6 makes the cache s
 Pending journal and authoritative file writes MUST flush before:
 
 - Clean application quit
-- Window close when it quits the application
+- Library window close, including when other windows remain open
 - Operating-system suspension when notification is available
 - Library switch
 - Library-directory change
@@ -995,8 +1009,9 @@ Full note bodies MUST NOT be placed in routine logs. Diagnostics MAY include IDs
 5. Return opens an explicit selection before considering creation.
 6. Return creates a uniquely titled empty-body note when no explicit or automatic title match exists.
 7. Escape clears search and restores the full sorted list.
-8. Restart reopens the remembered library with an empty query, no selection,
-   the complete sorted note list scrolled to the top, and search focused.
+8. Restart reopens every previously open library window with an empty query,
+   no selection, the complete sorted note list scrolled to the top, and search
+   focused in each window. Explicitly closed windows are not reopened.
 9. A query matches a substring occurring in the middle of a title or body word.
 10. One- and two-character queries return complete, correct results.
 11. An unsaved body edit immediately affects search through the in-memory overlay without becoming the last-saved SQLite row.

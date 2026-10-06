@@ -9,6 +9,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Independent windows for different libraries, with existing windows brought
+  forward when the same library is opened again.
+- Restoration of all open library windows on relaunch, with layout remembered
+  per library and note commands routed to the focused window.
+
 - Named libraries with a picker, searchable Command-Shift-L switcher, and
   add, rename, and remove-from-list actions.
 - Restoration of each library's search, selection, and cursor positions when

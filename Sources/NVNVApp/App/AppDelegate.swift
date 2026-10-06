@@ -2,7 +2,7 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    weak var model: AppModel?
+    weak var coordinator: LibraryWindowCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -16,10 +16,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let model else { return .terminateNow }
+        guard let coordinator else { return .terminateNow }
+        guard !coordinator.isQuitting else { return .terminateLater }
         Task {
             do {
-                try await model.flushAll()
+                try await coordinator.prepareForQuit()
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
                 let alert = NSAlert(error: error)
