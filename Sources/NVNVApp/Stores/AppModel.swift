@@ -1696,7 +1696,13 @@ final class AppModel {
             return
         }
         if active.noteID == newConflict.noteID {
-            conflict = newConflict
+            // A pending save or a later rescan can detect the same divergence
+            // again. Replacing the conflict would give it a new identity, which
+            // reopens a deferred sheet and discards a merge in progress.
+            let isSameDivergence = active.appBody == newConflict.appBody
+                && active.fileBody == newConflict.fileBody
+                && active.fileHash == newConflict.fileHash
+            if !isSameDivergence { conflict = newConflict }
             return
         }
         if queuedConflicts[newConflict.noteID] == nil {

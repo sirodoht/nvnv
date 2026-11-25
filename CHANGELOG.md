@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Keep a deferred conflict dismissed, and a merge in progress intact, when the
+  same conflict is detected again by a later save or rescan.
 - Stop reporting a conflict between identical versions after a crash that
   interrupted a save just before its recovery entry was cleared.
 - Reconcile every external change when several arrive in quick succession,

@@ -494,6 +494,43 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func redetectingTheSameConflictKeepsItsIdentityAndDeferral() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.saveDebounceDelay = .milliseconds(50)
+        model.saveDeadlineDelay = .milliseconds(400)
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await Task.sleep(for: .milliseconds(500))
+        let note = try #require(model.notes.first)
+        model.selection = [note.id]
+        try Data("external".utf8).write(to: root.appendingPathComponent("A.txt"))
+        model.updateBody("app draft")
+
+        // The debounced save detects the conflict first.
+        for _ in 0..<100 where model.conflict == nil { try await Task.sleep(for: .milliseconds(10)) }
+        let first = try #require(model.conflict)
+        #expect(first.appBody == "app draft")
+        #expect(first.fileBody == "external")
+        model.deferConflict()
+
+        // The deadline save and the watcher both observe the same divergence.
+        try await Task.sleep(for: .milliseconds(900))
+
+        #expect(model.conflict?.id == first.id)
+        #expect(!model.isConflictPresented)
+
+        // A different file version is a new conflict and is presented again.
+        try Data("external again".utf8).write(to: root.appendingPathComponent("A.txt"))
+        await model.reconcileExternalChanges(.init(paths: [], requiresFullRescan: true))
+        #expect(model.conflict?.fileBody == "external again")
+        #expect(model.conflict?.id != first.id)
+        #expect(model.isConflictPresented)
+
+        await model.resolveConflictUseFile()
+        await model.forgetLibrary()
+    }
+
     @Test func staleResolverCannotResolveANewerConflictForTheSameNote() async throws {
         let root = try makeLibrary(["A.txt": "alpha"])
         defer { try? FileManager.default.removeItem(at: root) }
