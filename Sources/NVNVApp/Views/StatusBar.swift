@@ -8,7 +8,7 @@ struct StatusBar: View {
     @State private var isShowingScanIssues = false
 
     var body: some View {
-        if model.scanIssueSummary != nil || model.transientMessage != nil {
+        if model.scanIssueSummary != nil || model.transientMessage != nil || model.isIndexing {
             HStack(spacing: 8) {
                 if let summary = model.scanIssueSummary {
                     Button { isShowingScanIssues = true } label: {
@@ -29,6 +29,11 @@ struct StatusBar: View {
                         .onTapGesture { model.dismissTransientMessage() }
                 }
                 Spacer(minLength: 0)
+                if model.isIndexing {
+                    // Search stays complete meanwhile; it only runs slower.
+                    ProgressView().controlSize(.mini)
+                    Text("Indexing…").foregroundStyle(.secondary)
+                }
             }
             .font(.system(size: 10.5))
             .lineLimit(1)
