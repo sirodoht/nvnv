@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Allow renaming a note to a different capitalization of its own title instead
+  of proposing a numbered duplicate.
 - Create library windows at their saved frames before showing them, eliminating
   the centered startup window and visible movement during restoration.
 - Capture each library's final window size and position on quit, and restore its

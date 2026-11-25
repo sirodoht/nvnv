@@ -86,10 +86,13 @@ public actor FileRepository {
     public func rename(note: Note, to filename: String) throws -> URL {
         let source = libraryURL.appendingPathComponent(note.filename)
         let destination = libraryURL.appendingPathComponent(filename)
-        guard !FileManager.default.fileExists(atPath: destination.path) else {
+        // On a case-insensitive volume the new spelling already "exists": it is
+        // the source itself. Only a different file is a collision.
+        let isCaseVariant = FilenamePolicy.isCaseVariant(destination, of: source)
+        guard isCaseVariant || !FileManager.default.fileExists(atPath: destination.path) else {
             throw NVNVError.fileOperation(path: filename, reason: "a file already exists")
         }
-        if source.lastPathComponent.caseInsensitiveCompare(destination.lastPathComponent) == .orderedSame {
+        if isCaseVariant {
             let temporary = libraryURL.appendingPathComponent(".nvnv-rename-\(UUID().uuidString)")
             try FileManager.default.moveItem(at: source, to: temporary)
             do { try FileManager.default.moveItem(at: temporary, to: destination) }

@@ -38,7 +38,23 @@ public enum FilenamePolicy {
             if url.standardizedFileURL == excluding?.standardizedFileURL || !fileManager.fileExists(atPath: url.path) {
                 return candidate
             }
+            if let excluding, isCaseVariant(url, of: excluding) { return candidate }
             counter += 1
         }
+    }
+
+    /// True when `candidate` differs from `existing` only by letter case and
+    /// resolves to the same file, as it does on a case-insensitive volume. A
+    /// distinct file with that spelling on a case-sensitive volume is not a
+    /// variant and must still be treated as a collision.
+    public static func isCaseVariant(_ candidate: URL, of existing: URL) -> Bool {
+        guard candidate.lastPathComponent != existing.lastPathComponent,
+              candidate.lastPathComponent.caseInsensitiveCompare(existing.lastPathComponent) == .orderedSame,
+              candidate.deletingLastPathComponent().standardizedFileURL
+                == existing.deletingLastPathComponent().standardizedFileURL else { return false }
+        var candidateInfo = stat()
+        var existingInfo = stat()
+        guard lstat(candidate.path, &candidateInfo) == 0, lstat(existing.path, &existingInfo) == 0 else { return false }
+        return candidateInfo.st_dev == existingInfo.st_dev && candidateInfo.st_ino == existingInfo.st_ino
     }
 }

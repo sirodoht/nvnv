@@ -15,6 +15,40 @@ struct FileCoreTests {
         }
     }
 
+    @Test func caseOnlyRenameKeepsTheRequestedSpellingAndTheSameFile() async throws {
+        try await withTemporaryDirectory { root in
+            let repository = FileRepository(libraryURL: root)
+            guard case .saved(let metadata) = try await repository.create(filename: "foo.txt", body: "body") else {
+                Issue.record("create unexpectedly conflicted"); return
+            }
+            let source = root.appendingPathComponent("foo.txt")
+            #expect(FilenamePolicy.availableFilename(
+                stem: "Foo", extension: "txt", in: root, excluding: source
+            ) == "Foo.txt")
+            // Without the excluded note, the spelling collides wherever the volume folds case.
+            let foldsCase = FileManager.default.fileExists(atPath: root.appendingPathComponent("FOO.txt").path)
+            #expect(FilenamePolicy.availableFilename(stem: "Foo", extension: "txt", in: root)
+                == (foldsCase ? "Foo 2.txt" : "Foo.txt"))
+
+            let note = Note(title: "foo", body: "body", filename: "foo.txt", lastSavedHash: metadata.hash)
+            _ = try await repository.rename(note: note, to: "Foo.txt")
+            let names = try FileManager.default.contentsOfDirectory(atPath: root.path)
+            #expect(names == ["Foo.txt"])
+            #expect(try String(contentsOf: root.appendingPathComponent("Foo.txt"), encoding: .utf8) == "body")
+        }
+    }
+
+    @Test func renameStillRejectsADifferentExistingFile() async throws {
+        try await withTemporaryDirectory { root in
+            let repository = FileRepository(libraryURL: root)
+            _ = try await repository.create(filename: "A.txt", body: "a")
+            _ = try await repository.create(filename: "B.txt", body: "b")
+            let note = Note(title: "A", body: "a", filename: "A.txt")
+            await #expect(throws: NVNVError.self) { _ = try await repository.rename(note: note, to: "B.txt") }
+            #expect(try String(contentsOf: root.appendingPathComponent("B.txt"), encoding: .utf8) == "b")
+        }
+    }
+
     @Test func scannerHandlesBOMCRLFAndIgnoresNestedAndSymlink() throws {
         try withTemporaryDirectory { root in
             try Data([0xEF, 0xBB, 0xBF] + Array("one\r\ntwo\r\n".utf8)).write(to: root.appendingPathComponent("Alpha.txt"))
