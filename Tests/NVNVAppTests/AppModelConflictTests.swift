@@ -279,12 +279,44 @@ struct AppModelConflictTests {
             $0[$1.id] = SearchDocument(note: $1)
         }
 
-        let resolved = AppModel.resultsPreservingMatchingSelection(
+        let resolved = AppModel.resultsPreservingExplicitSelection(
             found: [], selection: [selected.id], documents: documents,
             query: SearchQuery(selected.title), sort: NoteSort(field: .modified, ascending: false)
         )
 
         #expect(resolved.map(\.id) == [selected.id])
+    }
+
+    @Test func editingAwayTheMatchKeepsTheExplicitlySelectedNoteOpen() async throws {
+        let root = try makeLibrary(["A.txt": "alpha one", "B.txt": "alpha two", "C.txt": "gamma"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        model.userEnteredSearchText("alpha")
+        try await Task.sleep(for: .milliseconds(150))
+        let a = try #require(model.notes.first { $0.filename == "A.txt" })
+        let b = try #require(model.notes.first { $0.filename == "B.txt" })
+        model.select([a.id])
+
+        model.updateBody("no longer matching")
+        // Past the deferred list refresh that re-evaluates membership.
+        try await Task.sleep(for: .milliseconds(1_000))
+
+        #expect(model.selection == [a.id])
+        #expect(model.selectedNote?.body == "no longer matching")
+        #expect(Set(model.results.map(\.id)) == [a.id, b.id])
+
+        // Return opens the selected note instead of creating one named "alpha".
+        await model.submitSearch()
+        #expect(model.selection == [a.id])
+        #expect(model.notes.count == 3)
+
+        // Choosing another note releases it from the filtered list.
+        model.select([b.id])
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.results.map(\.id) == [b.id])
+        #expect(model.selection == [b.id])
+        await model.forgetLibrary()
     }
 
     @Test func unrelatedNoteRemainsEditableDuringConflict() async throws {

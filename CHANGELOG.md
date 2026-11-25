@@ -21,6 +21,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Keep the explicitly selected note open and listed when an edit removes the
+  text that matched the search, and open it on Return instead of creating a
+  note named after the query.
 - Keep a deferred conflict dismissed, and a merge in progress intact, when the
   same conflict is detected again by a later save or rescan.
 - Stop reporting a conflict between identical versions after a crash that

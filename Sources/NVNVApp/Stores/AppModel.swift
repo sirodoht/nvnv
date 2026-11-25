@@ -126,6 +126,9 @@ final class AppModel {
     private var activeNoteOperations = 0
     private var cacheTasks: [UUID: Task<Void, Never>] = [:]
     private var scrollToSelectionAfterNextSearch = false
+    /// Explicitly selected notes kept in `results` although they no longer
+    /// match the query. They are released once they stop being selected.
+    private var retainedNonMatchingIDs: Set<UUID> = []
     /// Autosave timing. Tests shorten these to exercise the deadline quickly.
     var saveDebounceDelay = Duration.milliseconds(750)
     var saveDeadlineDelay = Duration.seconds(10)
@@ -414,6 +417,7 @@ final class AppModel {
         pendingListResort = false
         scrollToTopAfterNextSearch = false
         scrollToSelectionAfterNextSearch = false
+        retainedNonMatchingIDs = []
         scanIssues = []
         queuedConflicts = [:]
         queuedConflictOrder = []
@@ -665,6 +669,12 @@ final class AppModel {
         }
         if explicitly { synchronizeSelectedTitlePresentation() }
         populateSelectedHighlightRanges()
+        releaseRetainedResultsOutsideSelection()
+    }
+
+    private func releaseRetainedResultsOutsideSelection() {
+        guard !retainedNonMatchingIDs.isSubset(of: selection) else { return }
+        refreshSearch()
     }
 
     func moveSelection(by offset: Int) {
@@ -690,8 +700,11 @@ final class AppModel {
         guard !isSwitchingLibrary else { return }
         let parsed = SearchQuery(query)
         let explicitID = selectionKind == .explicit ? selection.first : nil
+        // An explicit selection can remain listed after an edit stops it
+        // matching the query; Return still opens it rather than creating a note.
         let validExplicitID = explicitID.flatMap { id in
-            searchDocuments[id].flatMap { SearchService.result(for: $0, query: parsed) } == nil ? nil : id
+            results.contains { $0.id == id }
+                || searchDocuments[id].flatMap { SearchService.result(for: $0, query: parsed) } != nil ? id : nil
         }
         let automaticID = SearchService.automaticMatch(
             query: query, documents: Array(searchDocuments.values), sort: sort
@@ -724,6 +737,7 @@ final class AppModel {
         selectionKind = .none
         automaticSelectionSuppressedQuery = query
         restoreSearchTextAfterSelection()
+        releaseRetainedResultsOutsideSelection()
         requestListScrollToTop()
         requestSearchFocus(selection: .collapseSelectionToEnd)
     }
@@ -1315,13 +1329,16 @@ final class AppModel {
 
     private func applySearchResults(_ found: [SearchResult], query: SearchQuery, sort: NoteSort) {
         let resolved = selectionKind == .explicit
-            ? Self.resultsPreservingMatchingSelection(
+            ? Self.resultsPreservingExplicitSelection(
                 found: found, selection: selection, documents: searchDocuments,
                 query: query, sort: sort
             )
             : found
         results = resolved
         let available = Set(resolved.map(\.id))
+        retainedNonMatchingIDs = available.subtracting(found.map(\.id)).filter { id in
+            searchDocuments[id].flatMap { SearchService.result(for: $0, query: query) } == nil
+        }
         if selectionKind == .explicit {
             selection.formIntersection(available)
         } else if automaticSelectionSuppressedQuery != query.rawValue,
@@ -1352,9 +1369,12 @@ final class AppModel {
 
     /// SQLite narrows broad searches to a candidate superset, but its disposable
     /// index can briefly lag a newly-created or externally-reconciled note. The
-    /// open note's in-memory document is authoritative, so keep it in the list
-    /// whenever it still satisfies the current query.
-    static func resultsPreservingMatchingSelection(
+    /// open note's in-memory document is authoritative, so keep it in the list.
+    ///
+    /// An explicitly selected note also stays listed after an edit removes the
+    /// text that matched the query. Dropping it would close the editor while
+    /// the user is typing; it leaves the list when the query or selection changes.
+    static func resultsPreservingExplicitSelection(
         found: [SearchResult], selection: Set<UUID>,
         documents: [UUID: SearchDocument], query: SearchQuery, sort: NoteSort
     ) -> [SearchResult] {
@@ -1362,9 +1382,11 @@ final class AppModel {
         let available = Set(found.map(\.id))
         var insertedMatch = false
         for id in selection.subtracting(available) {
-            guard let document = documents[id],
-                  let result = SearchService.result(for: document, query: query) else { continue }
-            resolved.append(result)
+            guard let document = documents[id] else { continue }
+            resolved.append(
+                SearchService.result(for: document, query: query)
+                    ?? SearchResult(note: document.note, titleRanges: [], bodyRanges: [], excerpt: document.excerpt)
+            )
             insertedMatch = true
         }
         guard insertedMatch else { return found }
