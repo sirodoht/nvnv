@@ -325,6 +325,40 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func continuousTypingKeepsBeingCommittedAtEachDeadline() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        // The debounce never elapses below, so only the deadline can save.
+        model.saveDebounceDelay = .seconds(30)
+        model.saveDeadlineDelay = .milliseconds(200)
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        let note = try #require(model.notes.first)
+        model.selection = [note.id]
+        let file = root.appendingPathComponent("A.txt")
+
+        // Edit without pausing so every save observes a newer revision.
+        let clock = ContinuousClock()
+        let start = clock.now
+        var editTimes: [String: ContinuousClock.Instant] = [:]
+        var index = 0
+        while clock.now - start < .milliseconds(1_500) {
+            index += 1
+            let body = "edit \(index)"
+            editTimes[body] = clock.now
+            model.updateBody(body)
+            await Task.yield()
+        }
+        let end = clock.now
+
+        let saved = try String(contentsOf: file, encoding: .utf8)
+        let savedAt = try #require(editTimes[saved])
+        // A one-shot deadline would leave the file about 1.3 seconds stale.
+        #expect(end - savedAt < .milliseconds(700))
+        try await model.flushAll()
+        await model.forgetLibrary()
+    }
+
     @Test func savingClearedNoteCannotRestoreItsLastExcerptCharacter() async throws {
         let root = try makeLibrary(["A.txt": "x"])
         defer { try? FileManager.default.removeItem(at: root) }

@@ -124,6 +124,9 @@ final class AppModel {
     private var activeNoteOperations = 0
     private var cacheTasks: [UUID: Task<Void, Never>] = [:]
     private var scrollToSelectionAfterNextSearch = false
+    /// Autosave timing. Tests shorten these to exercise the deadline quickly.
+    var saveDebounceDelay = Duration.milliseconds(750)
+    var saveDeadlineDelay = Duration.seconds(10)
 
     init(userDefaults: UserDefaults = .standard, catalogStore: LibraryCatalogStore? = nil) {
         self.userDefaults = userDefaults
@@ -1598,15 +1601,21 @@ final class AppModel {
 
     private func scheduleSave(for id: UUID) {
         saveTasks[id]?.cancel()
+        let debounce = saveDebounceDelay
+        let deadline = saveDeadlineDelay
         saveTasks[id] = Task {
-            try? await Task.sleep(for: .milliseconds(750))
+            try? await Task.sleep(for: debounce)
             guard !Task.isCancelled else { return }
             await save(id)
         }
         if deadlineTasks[id] == nil {
             deadlineTasks[id] = Task {
-                try? await Task.sleep(for: .seconds(10))
+                try? await Task.sleep(for: deadline)
                 guard !Task.isCancelled else { return }
+                // Retire this deadline before saving. Edits that arrive during
+                // or after the save must be able to arm a new one; otherwise
+                // continuous typing is only committed once.
+                deadlineTasks[id] = nil
                 await save(id)
             }
         }
