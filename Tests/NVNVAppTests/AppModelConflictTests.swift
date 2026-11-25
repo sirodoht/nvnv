@@ -618,6 +618,34 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func journalForAnAlreadyCommittedSaveIsDiscardedWithoutAConflict() async throws {
+        // Simulates a process that ended after replacing the file but before
+        // removing the journal entry: the entry's base hash is the pre-save
+        // hash, while the file already holds the journaled body.
+        let root = try makeLibrary(["A.txt": "committed body"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scanned = try #require(
+            LibraryScanner().scan(directory: root, recognizedExtensions: ["txt"]).notes.first
+        )
+        let journalDirectory = root.appendingPathComponent(".nvnv/journal", isDirectory: true)
+        let journal = try RecoveryJournal(directory: journalDirectory)
+        try await journal.record(JournalEntry(
+            noteID: scanned.id, kind: .edit, baseHash: Hashing.sha256(text: "body before the save"),
+            filename: scanned.filename, intendedFilename: scanned.filename,
+            body: "committed body", revision: scanned.revision + 1
+        ))
+
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+
+        #expect(model.conflict == nil)
+        #expect(model.errorMessage == nil)
+        #expect(model.notes.first?.body == "committed body")
+        #expect(try await journal.pending().isEmpty)
+        try await model.flushAll()
+        await model.forgetLibrary()
+    }
+
     enum RecoveryResolution: CaseIterable {
         case useFile, keepApp, merge, keepBoth
     }

@@ -1996,6 +1996,12 @@ final class AppModel {
                         case .conflict(let data, let hash):
                             presentConflict(makeConflict(note: notes[index], data: data, hash: hash))
                         }
+                    } else if notes[index].body == entry.body {
+                        // The draft already reached the file: the process ended
+                        // after the atomic replacement but before its journal
+                        // entry was removed. There is nothing left to recover.
+                        try await journal.remove(entry.id)
+                        forgetJournalEntry(entry.id, for: noteID)
                     } else {
                         notes[index].body = entry.body
                         presentConflict(makeConflict(note: notes[index], data: try await repository.data(for: entry.filename), hash: notes[index].lastSavedHash))

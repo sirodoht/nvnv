@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Stop reporting a conflict between identical versions after a crash that
+  interrupted a save just before its recovery entry was cleared.
 - Reconcile every external change when several arrive in quick succession,
   instead of discarding a scan that was still running.
 - Keep committing a continuously edited note every 10 seconds instead of only
