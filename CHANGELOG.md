@@ -21,6 +21,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Dim note list menu items that cannot be used: Rename and Show in Finder
+  with several notes selected, Rename and Move to Trash in a read-only
+  library, and hiding the last visible column.
 - Keep the Settings window on its library window when Switch Library or Add
   Library is used from Settings, instead of showing "No Library Selected".
 - Create new notes with a usable extension when the Default extension setting

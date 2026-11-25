@@ -546,6 +546,9 @@ private struct NativeNoteTable: NSViewRepresentable {
         private func rowMenu(for row: Int) -> NSMenu? {
             guard parent.results.indices.contains(row) else { return nil }
             let menu = NSMenu()
+            // Items are enabled by hand below. Automatic validation would
+            // re-enable every one of them, because each has a live target.
+            menu.autoenablesItems = false
             let rename = NSMenuItem(title: "Rename", action: #selector(renameNote(_:)), keyEquivalent: "")
             rename.target = self
             rename.isEnabled = !parent.isReadOnly && parent.model.selection.count == 1
@@ -566,6 +569,7 @@ private struct NativeNoteTable: NSViewRepresentable {
 
         private func columnMenu() -> NSMenu {
             let menu = NSMenu()
+            menu.autoenablesItems = false
             let visibleCount = parent.model.visibleNoteListColumns.count
             for column in NoteListColumn.allCases {
                 let item = NSMenuItem(title: column.title, action: #selector(toggleColumn(_:)), keyEquivalent: "")
