@@ -870,6 +870,39 @@ struct AppModelConflictTests {
         Issue.record("search cache rebuild did not finish")
     }
 
+    @Test(arguments: [true, false])
+    func noteCreatedDuringARescanKeepsOneIdentity(fullRescan: Bool) async throws {
+        // Enough files that the scan is still running when the note is created.
+        let files = Dictionary(uniqueKeysWithValues: (0..<300).map { ("N\($0).txt", "body \($0)") })
+        let root = try makeLibrary(files)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        // Let the rescan that follows every library open finish first.
+        try await Task.sleep(for: .milliseconds(700))
+
+        let change = DirectoryWatcher.Change(
+            paths: fullRescan ? [] : [root.appendingPathComponent("Fresh.txt")],
+            requiresFullRescan: fullRescan
+        )
+        let reconcile = Task { await model.reconcileExternalChanges(change) }
+        // Let the reconciliation snapshot the notes and begin scanning.
+        for _ in 0..<3 { await Task.yield() }
+        model.userEnteredSearchText("Fresh")
+        await model.submitSearch()
+        let createdID = try #require(model.selection.first)
+        await reconcile.value
+
+        let fresh = model.notes.filter { $0.filename == "Fresh.txt" }
+        #expect(fresh.map(\.id) == [createdID])
+        #expect(model.selection == [createdID])
+        #expect(model.notes.count == 301)
+        // A duplicate entry used to trap the next reconciliation.
+        await model.reconcileExternalChanges(.init(paths: [], requiresFullRescan: true))
+        #expect(model.notes.filter { $0.filename == "Fresh.txt" }.map(\.id) == [createdID])
+        await model.forgetLibrary()
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

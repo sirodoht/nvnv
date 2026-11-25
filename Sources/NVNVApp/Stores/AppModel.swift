@@ -123,7 +123,13 @@ final class AppModel {
     private var automaticSelectionSuppressedQuery: String?
     private var navigationHistory: [(String, Set<UUID>)] = []
     private var librarySessions: [String: LibrarySession] = [:]
-    private var activeNoteOperations = 0
+    private var activeNoteOperations = 0 {
+        didSet { if activeNoteOperations < oldValue { completedNoteOperations &+= 1 } }
+    }
+    /// Advances whenever a create, rename, trash, or conflict resolution ends.
+    /// A reconciliation scan that overlapped one is stale: its snapshot of
+    /// `notes` predates a file the operation has since put on disk.
+    private var completedNoteOperations = 0
     private var cacheTasks: [UUID: Task<Void, Never>] = [:]
     private var scrollToSelectionAfterNextSearch = false
     /// Explicitly selected notes kept in `results` although they no longer
@@ -529,7 +535,8 @@ final class AppModel {
                 }
             }
             let cached = cacheSnapshot.notes
-            let cachedByFilename = Dictionary(uniqueKeysWithValues: cached.map { ($0.filename, $0) })
+            // An earlier session may have cached one file under two identities.
+            let cachedByFilename = Dictionary(cached.map { ($0.filename, $0) }, uniquingKeysWith: { first, _ in first })
             let startupWatcherBuffer = DirectoryWatcherStartupBuffer()
             let initialWatcher = DirectoryWatcher(url: selectedURL) { change in
                 startupWatcherBuffer.receive(change)
@@ -1789,6 +1796,27 @@ final class AppModel {
     /// is in flight is merged into the next pass instead of superseding the
     /// running one, whose paths the newer change would not otherwise cover.
     func reconcileExternalChanges(_ change: DirectoryWatcher.Change) async {
+        mergePendingExternalChange(change)
+        guard !isReconcilingExternalChanges else { return }
+        isReconcilingExternalChanges = true
+        defer { isReconcilingExternalChanges = false }
+        while let next = pendingExternalChange {
+            pendingExternalChange = nil
+            // A library transition discards in-flight results and ends with
+            // its own full rescan, so changes queued before it are obsolete.
+            guard !isSwitchingLibrary, libraryURL != nil else { return }
+            // An operation in flight may already have changed the folder
+            // without having recorded its note. Scan only between operations.
+            while activeNoteOperations > 0 { await Task.yield() }
+            guard !isSwitchingLibrary, let libraryURL else { return }
+            let applied = next.requiresFullRescan
+                ? await reconcileAllExternalChanges(libraryURL: libraryURL)
+                : await reconcileTargetedExternalChanges(paths: next.paths, libraryURL: libraryURL)
+            if !applied { mergePendingExternalChange(next) }
+        }
+    }
+
+    private func mergePendingExternalChange(_ change: DirectoryWatcher.Change) {
         if let pending = pendingExternalChange {
             pendingExternalChange = .init(
                 paths: pending.paths.union(change.paths),
@@ -1797,34 +1825,30 @@ final class AppModel {
         } else {
             pendingExternalChange = change
         }
-        guard !isReconcilingExternalChanges else { return }
-        isReconcilingExternalChanges = true
-        defer { isReconcilingExternalChanges = false }
-        while let next = pendingExternalChange {
-            pendingExternalChange = nil
-            // A library transition discards in-flight results and ends with
-            // its own full rescan, so changes queued before it are obsolete.
-            guard !isSwitchingLibrary, let libraryURL else { return }
-            if next.requiresFullRescan {
-                await reconcileAllExternalChanges(libraryURL: libraryURL)
-            } else {
-                await reconcileTargetedExternalChanges(paths: next.paths, libraryURL: libraryURL)
-            }
-        }
     }
 
-    private func reconcileAllExternalChanges(libraryURL: URL) async {
+    /// A scan result may be applied only if no note operation ran during it.
+    /// Otherwise a file that operation created would be adopted as a second,
+    /// unrelated note under a new identity.
+    private func scanIsCurrent(since operations: Int) -> Bool {
+        activeNoteOperations == 0 && completedNoteOperations == operations
+    }
+
+    /// Returns false when the scan overlapped a note operation and must be repeated.
+    private func reconcileAllExternalChanges(libraryURL: URL) async -> Bool {
         // Only a library transition advances the generation while a scan runs.
         let generation = reconcileGeneration
+        let operations = completedNoteOperations
         let scanner = scanner
         let extensions = recognizedExtensions
         let cachedNotes = notes
         do {
-            let oldByFilename = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.filename, $0) })
+            let oldByFilename = Dictionary(cachedNotes.map { ($0.filename, $0) }, uniquingKeysWith: { first, _ in first })
             var scan = try await Task.detached(priority: .utility) {
                 try scanner.scan(directory: libraryURL, recognizedExtensions: extensions, cached: oldByFilename)
             }.value
-            guard generation == reconcileGeneration else { return }
+            guard generation == reconcileGeneration else { return true }
+            guard scanIsCurrent(since: operations) else { return false }
             let currentByID = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0) })
             let oldByID = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.id, $0) })
             let identityPreserved = scan.notes.map { disk -> Note in
@@ -1893,17 +1917,20 @@ final class AppModel {
             scanIssues = scan.issues
             refreshSearch()
         } catch {
-            guard generation == reconcileGeneration else { return }
+            guard generation == reconcileGeneration else { return true }
             errorMessage = error.localizedDescription
         }
+        return true
     }
 
-    private func reconcileTargetedExternalChanges(paths: Set<URL>, libraryURL: URL) async {
+    /// Returns false when the scan overlapped a note operation and must be repeated.
+    private func reconcileTargetedExternalChanges(paths: Set<URL>, libraryURL: URL) async -> Bool {
         let generation = reconcileGeneration
+        let operations = completedNoteOperations
         let scanner = scanner
         let extensions = recognizedExtensions
         let cachedNotes = notes
-        let oldByFilename = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.filename, $0) })
+        let oldByFilename = Dictionary(cachedNotes.map { ($0.filename, $0) }, uniquingKeysWith: { first, _ in first })
         let oldByID = Dictionary(uniqueKeysWithValues: cachedNotes.map { ($0.id, $0) })
         let root = libraryURL.standardizedFileURL
         let relevantPaths = Set(paths.map(\.standardizedFileURL).filter { url in
@@ -1911,7 +1938,7 @@ final class AppModel {
             return oldByFilename[url.lastPathComponent] != nil
                 || extensions.contains(url.pathExtension.lowercased())
         })
-        guard !relevantPaths.isEmpty else { return }
+        guard !relevantPaths.isEmpty else { return true }
         do {
             let scan = try await Task.detached(priority: .utility) {
                 try scanner.scan(
@@ -1919,7 +1946,8 @@ final class AppModel {
                     recognizedExtensions: extensions, cached: oldByFilename
                 )
             }.value
-            guard generation == reconcileGeneration else { return }
+            guard generation == reconcileGeneration else { return true }
+            guard scanIsCurrent(since: operations) else { return false }
             let currentByID = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0) })
 
             let affectedFilenames = Set(relevantPaths.map(\.lastPathComponent))
@@ -2009,9 +2037,10 @@ final class AppModel {
             scanIssues.append(contentsOf: scan.issues)
             refreshSearch()
         } catch {
-            guard generation == reconcileGeneration else { return }
+            guard generation == reconcileGeneration else { return true }
             errorMessage = error.localizedDescription
         }
+        return true
     }
 
     private func replayJournal() async -> [Note] {

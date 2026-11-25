@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Fix a crash, and a newly created note losing its selection, when a note
+  was created while nvnv was rescanning the library folder.
 - Dim note list menu items that cannot be used: Rename and Show in Finder
   with several notes selected, Rename and Move to Trash in a read-only
   library, and hiding the last visible column.
