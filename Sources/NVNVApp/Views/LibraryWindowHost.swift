@@ -4,7 +4,7 @@ struct LibrarySettingsHost: View {
     @Bindable var coordinator: LibraryWindowCoordinator
 
     var body: some View {
-        if let model = coordinator.settingsModel, model.libraryURL != nil {
+        if let model = coordinator.settingsModel, model.libraryURL != nil || coordinator.isChangingSettingsLibrary {
             VStack(spacing: 0) {
                 Text("Settings for \(model.activeLibrary?.name ?? "Library")")
                     .font(.headline).padding(.top, 16)

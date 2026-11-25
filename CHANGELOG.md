@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Keep the Settings window on its library window when Switch Library or Add
+  Library is used from Settings, instead of showing "No Library Selected".
 - Create new notes with a usable extension when the Default extension setting
   is empty, starts with a dot, or is otherwise not a single extension.
 - Save edits in libraries on exFAT, FAT, and network volumes that cannot swap

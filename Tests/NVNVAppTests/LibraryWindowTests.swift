@@ -453,6 +453,32 @@ struct LibraryWindowTests {
         try await fixture.closeAll()
     }
 
+    @Test func settingsFollowTheirWindowWhenTheSwitchStartsInSettings() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let coordinator = fixture.coordinator
+        let a = coordinator.makeModel()
+        await coordinator.open(fixture.a, from: a, inNewWindow: false)
+        coordinator.settingsLibraryID = a.activeLibrary?.id
+
+        var modelDuringChange: AppModel?
+        await coordinator.changeLibraryFromSettings(of: a) {
+            await coordinator.open(fixture.c, from: a, inNewWindow: false)
+            modelDuringChange = coordinator.settingsModel
+        }
+
+        #expect(a.libraryURL == fixture.c)
+        #expect(modelDuringChange === a)
+        #expect(!coordinator.isChangingSettingsLibrary)
+        #expect(coordinator.settingsLibraryID == a.activeLibrary?.id)
+        #expect(coordinator.settingsModel === a)
+
+        // Once the change is over, Settings is pinned to the library again.
+        await coordinator.open(fixture.a, from: a, inNewWindow: false)
+        #expect(coordinator.settingsModel == nil)
+        try await fixture.closeAll()
+    }
+
     private func nativeFrame(offset: CGFloat) -> NSRect {
         let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         return NSRect(x: visible.minX + offset, y: visible.minY + 20, width: 480, height: 620)

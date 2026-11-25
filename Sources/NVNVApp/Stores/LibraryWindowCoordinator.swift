@@ -35,9 +35,14 @@ final class LibraryWindowCoordinator {
     private(set) var focusedModel: AppModel?
     var settingsLibraryID: UUID?
     var settingsModel: AppModel? {
+        if let settingsWindowID { return models.first { $0.windowID == settingsWindowID } }
         guard let settingsLibraryID else { return nil }
         return models.first { $0.activeLibrary?.id == settingsLibraryID }
     }
+    /// Set while a library change started from Settings is in flight. Settings
+    /// then follows the window instead of the library that window is leaving.
+    private var settingsWindowID: UUID?
+    var isChangingSettingsLibrary: Bool { settingsWindowID != nil }
     private(set) var isQuitting = false
     private(set) var openLibraryIDs: [UUID]
     @ObservationIgnored private var controllers: [UUID: LibraryWindowController] = [:]
@@ -114,6 +119,20 @@ final class LibraryWindowCoordinator {
             return
         }
         if target !== source { show(target) }
+    }
+
+    /// Runs a library change that was started from the Settings window.
+    /// Settings is pinned to a library, so without this it would lose its
+    /// subject as soon as that library's window opened a different one.
+    func changeLibraryFromSettings(of model: AppModel, _ change: @MainActor () async -> Void) async {
+        guard settingsWindowID == nil, settingsModel === model else {
+            await change()
+            return
+        }
+        settingsWindowID = model.windowID
+        await change()
+        settingsLibraryID = models.contains { $0 === model } ? model.activeLibrary?.id : nil
+        settingsWindowID = nil
     }
 
     func rememberSession(_ session: LibrarySession, at url: URL) {

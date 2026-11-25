@@ -33,7 +33,7 @@ struct SettingsView: View {
                     }
                     HStack {
                         Button("Switch Library…") { isSwitcherPresented = true }
-                        Button("Add Library…") { Task { await model.chooseLibrary() } }
+                        Button("Add Library…") { changeLibrary { await model.chooseLibrary() } }
                         Spacer()
                         Button("Remove from List…") {
                             managedLibrary = model.activeLibrary
@@ -41,7 +41,7 @@ struct SettingsView: View {
                         }
                     }
                 } else {
-                    Button("Add Library…") { Task { await model.chooseLibrary() } }
+                    Button("Add Library…") { changeLibrary { await model.chooseLibrary() } }
                     if !model.libraries.isEmpty {
                         Button("Switch Library…") { isSwitcherPresented = true }
                     }
@@ -129,8 +129,26 @@ struct SettingsView: View {
             model.librarySwitcherAction = nil
             managedLibrary = library
             isForgetConfirmationPresented = true
+        case .open(let library):
+            model.librarySwitcherAction = nil
+            changeLibrary { await model.switchLibrary(to: library) }
+        case .add:
+            model.librarySwitcherAction = nil
+            changeLibrary { await model.chooseLibrary() }
         default:
             model.finishLibrarySwitcher()
+        }
+    }
+
+    /// Changes this window's library while keeping Settings attached to it.
+    private func changeLibrary(_ change: @escaping @MainActor () async -> Void) {
+        let model = model
+        Task {
+            if let coordinator = model.windowCoordinator {
+                await coordinator.changeLibraryFromSettings(of: model, change)
+            } else {
+                await change()
+            }
         }
     }
 
