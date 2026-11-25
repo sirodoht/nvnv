@@ -970,6 +970,31 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func countStatusFollowsTheSelection() {
+        #expect(AppModel.countStatus(selectionCount: 0, wordCount: 12) == nil)
+        #expect(AppModel.countStatus(selectionCount: 1, wordCount: nil) == nil)
+        #expect(AppModel.countStatus(selectionCount: 1, wordCount: 0) == "0 words")
+        #expect(AppModel.countStatus(selectionCount: 1, wordCount: 1) == "1 word")
+        #expect(AppModel.countStatus(selectionCount: 1, wordCount: 12) == "12 words")
+        #expect(AppModel.countStatus(selectionCount: 3, wordCount: 12) == "3 notes selected")
+    }
+
+    @Test func wordCountPreferenceIsStoredWithTheLibrary() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        #expect(model.showWordCount)
+        model.showWordCount = false
+        try await model.flushAll()
+        await model.forgetLibrary()
+
+        let reopened = makeModel()
+        await reopened.openLibrary(root, confirmedAuxiliaryCreation: true)
+        #expect(!reopened.showWordCount)
+        await reopened.forgetLibrary()
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

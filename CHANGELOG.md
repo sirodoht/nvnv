@@ -9,6 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- A word count for the selected note in the status line, or the number of
+  notes when several are selected, with a "Show word count" setting.
 - An "Indexing…" indicator in the status line while the search index is
   being rebuilt.
 - A status line below the editor that reports library files nvnv could not

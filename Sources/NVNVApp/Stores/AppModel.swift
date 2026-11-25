@@ -66,6 +66,7 @@ final class AppModel {
     var windowFrame: LibraryWindowFrame? { didSet { persistSettingsSoon() } }
     var windowIsFullScreen = false { didSet { persistSettingsSoon() } }
     var showExcerpts = true { didSet { persistSettingsSoon() } }
+    var showWordCount = true { didSet { persistSettingsSoon() } }
     var confirmDeletion = true { didSet { persistSettingsSoon() } }
     var highlightSearch = true { didSet { persistSettingsSoon() } }
     var editorFontName = "" { didSet { persistSettingsSoon() } }
@@ -918,6 +919,16 @@ final class AppModel {
             await save(id)
         }
         return !dirtyNoteIDs.contains(id) && conflict?.noteID != id
+    }
+
+    /// The count shown in the status line: words for one selected note, the
+    /// number of notes for several, and nothing without a selection.
+    static func countStatus(selectionCount: Int, wordCount: Int?) -> String? {
+        switch selectionCount {
+        case 0: nil
+        case 1: wordCount.map { $0 == 1 ? "1 word" : "\($0.formatted()) words" }
+        default: "\(selectionCount.formatted()) notes selected"
+        }
     }
 
     /// Status text for files in the library that the scanner reported.
@@ -2162,6 +2173,7 @@ final class AppModel {
         windowFrame = settings.windowFrame
         windowIsFullScreen = settings.windowIsFullScreen ?? false
         showExcerpts = settings.showExcerpts
+        showWordCount = settings.showWordCount ?? true
         confirmDeletion = settings.confirmDeletion
         highlightSearch = settings.highlightSearch
         editorFontName = settings.editorFontName
@@ -2198,6 +2210,7 @@ final class AppModel {
         settings.windowFrame = windowFrame
         settings.windowIsFullScreen = windowIsFullScreen
         settings.showExcerpts = showExcerpts
+        settings.showWordCount = showWordCount
         settings.confirmDeletion = confirmDeletion
         settings.highlightSearch = highlightSearch
         settings.listFontSize = 11

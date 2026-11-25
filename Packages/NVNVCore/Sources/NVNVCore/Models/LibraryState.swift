@@ -21,6 +21,8 @@ public struct LibrarySettings: Codable, Equatable, Sendable {
     public var windowFrame: LibraryWindowFrame?
     public var windowIsFullScreen: Bool?
     public var showExcerpts = true
+    /// Optional so settings written before the word count continue to decode.
+    public var showWordCount: Bool?
     public var confirmDeletion = true
     public var highlightSearch = true
     public var listFontSize = 11.0

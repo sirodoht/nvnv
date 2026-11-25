@@ -6,9 +6,28 @@ import SwiftUI
 struct StatusBar: View {
     @Bindable var model: AppModel
     @State private var isShowingScanIssues = false
+    @State private var countedWords: CountedWords?
+
+    private struct CountedWords {
+        let noteID: UUID
+        let count: Int
+    }
+
+    private struct WordCountInput: Equatable {
+        let noteID: UUID?
+        let revision: Int
+    }
+
+    private var countsWords: Bool { model.showWordCount && !model.selection.isEmpty }
+
+    private var countStatus: String? {
+        guard model.showWordCount else { return nil }
+        let words = countedWords.flatMap { $0.noteID == model.selectedNote?.id ? $0.count : nil }
+        return AppModel.countStatus(selectionCount: model.selection.count, wordCount: words)
+    }
 
     var body: some View {
-        if model.scanIssueSummary != nil || model.transientMessage != nil || model.isIndexing {
+        if model.scanIssueSummary != nil || model.transientMessage != nil || model.isIndexing || countsWords {
             HStack(spacing: 8) {
                 if let summary = model.scanIssueSummary {
                     Button { isShowingScanIssues = true } label: {
@@ -34,13 +53,38 @@ struct StatusBar: View {
                     ProgressView().controlSize(.mini)
                     Text("Indexing…").foregroundStyle(.secondary)
                 }
+                if let countStatus {
+                    Text(countStatus).foregroundStyle(.secondary).monospacedDigit()
+                }
             }
+            .task(id: WordCountInput(
+                noteID: countsWords ? model.selectedNote?.id : nil,
+                revision: model.selectedNote?.revision ?? 0
+            )) { await countWords() }
             .font(.system(size: 10.5))
             .lineLimit(1)
             .padding(.horizontal, 8)
             .frame(height: 20)
             .overlay(alignment: .top) { Divider() }
         }
+    }
+}
+
+extension StatusBar {
+    /// Counts a newly shown note at once, and follows typing after a pause.
+    private func countWords() async {
+        guard countsWords, let note = model.selectedNote else {
+            countedWords = nil
+            return
+        }
+        if countedWords?.noteID == note.id {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+        }
+        let body = model.selectedNote?.id == note.id ? model.selectedNote?.body ?? note.body : note.body
+        let count = await Task.detached(priority: .utility) { WordCounter.count(body) }.value
+        guard !Task.isCancelled else { return }
+        countedWords = CountedWords(noteID: note.id, count: count)
     }
 }
 

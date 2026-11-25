@@ -51,6 +51,7 @@ struct SettingsView: View {
                 Toggle("Show body excerpts", isOn: $model.showExcerpts)
             }
             Section("Editor") {
+                Toggle("Show word count", isOn: $model.showWordCount)
                 HStack {
                     Text("Font")
                     Spacer()
