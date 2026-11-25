@@ -437,6 +437,36 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func overlappingExternalChangesAreAllReconciled() async throws {
+        let root = try makeLibrary(["A.txt": "alpha", "B.txt": "beta"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        // Let the post-open rescan finish so only the calls below are in flight.
+        try await Task.sleep(for: .milliseconds(500))
+        let a = try #require(model.notes.first { $0.filename == "A.txt" })
+        try FileManager.default.moveItem(
+            at: root.appendingPathComponent("A.txt"), to: root.appendingPathComponent("Renamed.txt")
+        )
+        try Data("beta changed".utf8).write(to: root.appendingPathComponent("B.txt"))
+
+        // A rename needs a full rescan. A targeted change for another file that
+        // arrives while that scan is running must not discard its result.
+        let full = Task { await model.reconcileExternalChanges(.init(paths: [], requiresFullRescan: true)) }
+        let targeted = Task {
+            await model.reconcileExternalChanges(.init(
+                paths: [root.appendingPathComponent("B.txt")], requiresFullRescan: false
+            ))
+        }
+        await full.value
+        await targeted.value
+
+        #expect(model.notes.first { $0.id == a.id }?.filename == "Renamed.txt")
+        #expect(model.notes.first { $0.filename == "B.txt" }?.body == "beta changed")
+        #expect(model.notes.count == 2)
+        await model.forgetLibrary()
+    }
+
     @Test func simultaneousConflictsAreResolvedInDetectionOrder() async throws {
         let root = try makeLibrary(["A.txt": "alpha", "B.txt": "beta"])
         defer { try? FileManager.default.removeItem(at: root) }

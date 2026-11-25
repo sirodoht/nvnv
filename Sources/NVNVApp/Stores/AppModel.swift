@@ -89,6 +89,8 @@ final class AppModel {
     private var libraryLock: LibraryLock?
     private var watcher: DirectoryWatcher?
     private var reconcileGeneration = 0
+    private var pendingExternalChange: DirectoryWatcher.Change?
+    private var isReconcilingExternalChanges = false
     private var searchGeneration = 0
     private var searchTask: Task<Void, Never>?
     private var visibleResultTask: Task<Void, Never>?
@@ -373,6 +375,7 @@ final class AppModel {
         journalDeadlineTasks.removeAll()
         searchGeneration += 1
         reconcileGeneration += 1
+        pendingExternalChange = nil
         librarySessionID = UUID()
 
         watcher = nil
@@ -1738,13 +1741,36 @@ final class AppModel {
         return acknowledged
     }
 
-    private func reconcileExternalChanges(_ change: DirectoryWatcher.Change) async {
-        guard let libraryURL else { return }
-        if !change.requiresFullRescan {
-            await reconcileTargetedExternalChanges(paths: change.paths, libraryURL: libraryURL)
-            return
+    /// Reconciliations run one at a time. A change that arrives while a scan
+    /// is in flight is merged into the next pass instead of superseding the
+    /// running one, whose paths the newer change would not otherwise cover.
+    func reconcileExternalChanges(_ change: DirectoryWatcher.Change) async {
+        if let pending = pendingExternalChange {
+            pendingExternalChange = .init(
+                paths: pending.paths.union(change.paths),
+                requiresFullRescan: pending.requiresFullRescan || change.requiresFullRescan
+            )
+        } else {
+            pendingExternalChange = change
         }
-        reconcileGeneration += 1
+        guard !isReconcilingExternalChanges else { return }
+        isReconcilingExternalChanges = true
+        defer { isReconcilingExternalChanges = false }
+        while let next = pendingExternalChange {
+            pendingExternalChange = nil
+            // A library transition discards in-flight results and ends with
+            // its own full rescan, so changes queued before it are obsolete.
+            guard !isSwitchingLibrary, let libraryURL else { return }
+            if next.requiresFullRescan {
+                await reconcileAllExternalChanges(libraryURL: libraryURL)
+            } else {
+                await reconcileTargetedExternalChanges(paths: next.paths, libraryURL: libraryURL)
+            }
+        }
+    }
+
+    private func reconcileAllExternalChanges(libraryURL: URL) async {
+        // Only a library transition advances the generation while a scan runs.
         let generation = reconcileGeneration
         let scanner = scanner
         let extensions = recognizedExtensions
@@ -1829,7 +1855,6 @@ final class AppModel {
     }
 
     private func reconcileTargetedExternalChanges(paths: Set<URL>, libraryURL: URL) async {
-        reconcileGeneration += 1
         let generation = reconcileGeneration
         let scanner = scanner
         let extensions = recognizedExtensions

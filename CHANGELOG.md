@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Reconcile every external change when several arrive in quick succession,
+  instead of discarding a scan that was still running.
 - Keep committing a continuously edited note every 10 seconds instead of only
   once per typing burst.
 - Stop a failed note save from closing an unrelated open file, which could
