@@ -885,6 +885,18 @@ final class AppModel {
         return !dirtyNoteIDs.contains(id) && conflict?.noteID != id
     }
 
+    /// Status text for files in the library that the scanner reported.
+    var scanIssueSummary: String? {
+        let count = Set(scanIssues.map(\.filename)).count
+        guard count > 0 else { return nil }
+        return count == 1 ? "1 file needs attention" : "\(count) files need attention"
+    }
+
+    func reveal(_ issue: ScanIssue) {
+        guard let libraryURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([libraryURL.appendingPathComponent(issue.filename)])
+    }
+
     func revealSelectedNote() {
         guard let libraryURL, let note = selectedNote else { return }
         NSWorkspace.shared.activateFileViewerSelecting([libraryURL.appendingPathComponent(note.filename)])

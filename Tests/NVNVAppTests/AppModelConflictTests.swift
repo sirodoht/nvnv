@@ -903,6 +903,25 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func filesTheScannerCouldNotReadAreSummarized() async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data([0xFF, 0xFE, 0xFD]).write(to: root.appendingPathComponent("Broken.txt"))
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+
+        #expect(model.notes.map(\.filename) == ["A.txt"])
+        #expect(model.scanIssues.map(\.filename) == ["Broken.txt"])
+        #expect(model.scanIssueSummary == "1 file needs attention")
+
+        // Repairing the file clears the report on the next reconciliation.
+        try Data("fixed".utf8).write(to: root.appendingPathComponent("Broken.txt"))
+        await model.reconcileExternalChanges(.init(paths: [], requiresFullRescan: true))
+        #expect(model.notes.count == 2)
+        #expect(model.scanIssueSummary == nil)
+        await model.forgetLibrary()
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

@@ -9,6 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- A status line below the editor that reports library files nvnv could not
+  read, such as files that are not valid UTF-8, with a list and Show in Finder.
 - Independent windows for different libraries, with existing windows brought
   forward when the same library is opened again.
 - Restoration of all open library windows on relaunch, with layout remembered

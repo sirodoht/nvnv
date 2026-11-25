@@ -83,6 +83,7 @@ struct ContentView: View {
                     )
                 }
             }
+            StatusBar(model: model)
         }
         .disabled(model.isSwitchingLibrary)
     }
