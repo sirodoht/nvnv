@@ -319,6 +319,28 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test(arguments: [("", "txt"), ("  ", "txt"), (".md", "md"), ("MD", "md"), ("tar.gz", "txt"), ("a/b", "txt")])
+    func newNotesUseAUsableDefaultExtension(entered: String, expected: String) async throws {
+        let root = try makeLibrary(["A.txt": "alpha"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        model.defaultExtension = entered
+
+        model.userEnteredSearchText("Fresh")
+        await model.submitSearch()
+
+        #expect(model.errorMessage == nil)
+        #expect(model.notes.contains { $0.filename == "Fresh.\(expected)" })
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Fresh.\(expected)").path))
+        // The created file must still be recognized as a note by a full rescan.
+        await model.reconcileExternalChanges(.init(paths: [], requiresFullRescan: true))
+        #expect(model.notes.contains { $0.title == "Fresh" })
+        #expect(model.notes.count == 2)
+        try await model.flushAll()
+        await model.forgetLibrary()
+    }
+
     @Test func unrelatedNoteRemainsEditableDuringConflict() async throws {
         let root = try makeLibrary(["A.txt": "alpha", "B.txt": "beta"])
         defer { try? FileManager.default.removeItem(at: root) }

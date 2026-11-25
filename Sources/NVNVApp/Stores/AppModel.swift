@@ -212,7 +212,23 @@ final class AppModel {
         let parsed = extensionList.split(separator: ",").map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
         }.filter { !$0.isEmpty }
-        return Set(parsed).union([defaultExtension.lowercased()])
+        return Set(parsed).union([effectiveDefaultExtension])
+    }
+
+    /// The extension given to new notes. The settings field is free text, so
+    /// an empty or unusable value falls back to `txt` rather than producing a
+    /// file the scanner would not recognize as a note.
+    var effectiveDefaultExtension: String {
+        Self.normalizedExtension(defaultExtension) ?? "txt"
+    }
+
+    static func normalizedExtension(_ raw: String) -> String? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+        let unusable = CharacterSet(charactersIn: "./:")
+            .union(.whitespacesAndNewlines).union(.controlCharacters)
+        guard !value.isEmpty, value.rangeOfCharacter(from: unusable) == nil else { return nil }
+        return value
     }
 
     var visibleNoteListColumns: [NoteListColumn] {
@@ -1098,7 +1114,7 @@ final class AppModel {
         defer { activeNoteOperations -= 1 }
         do {
             let stem = try FilenamePolicy.sanitizedStem(title)
-            let filename = FilenamePolicy.availableFilename(stem: stem, extension: defaultExtension, in: libraryURL)
+            let filename = FilenamePolicy.availableFilename(stem: stem, extension: effectiveDefaultExtension, in: libraryURL)
             guard confirmMaterialTitleChange(input: title, final: URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent) else { return }
             let result = try await repository.create(filename: filename, body: "")
             guard case .saved(let metadata) = result else { return }
@@ -2112,7 +2128,7 @@ final class AppModel {
         settings.tabWidth = tabWidth
         settings.tabIndents = tabIndents
         settings.recognizedExtensions = recognizedExtensions
-        settings.defaultExtension = defaultExtension
+        settings.defaultExtension = effectiveDefaultExtension
         return settings
     }
 
