@@ -130,6 +130,10 @@ public actor FileRepository {
         let fd = open(temporary.path, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR)
         guard fd >= 0 else { throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(errno))) }
         var removeTemporaryOnFailure = true
+        // Closing a descriptor twice can close an unrelated file that another
+        // thread opened in between, so the failure path closes it only if this
+        // write still owns it.
+        var descriptorIsOpen = true
         do {
             try bytes.withUnsafeBytes { rawBuffer in
                 guard let base = rawBuffer.baseAddress else { return }
@@ -142,6 +146,7 @@ public actor FileRepository {
             }
             guard fsync(fd) == 0 else { throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(errno))) }
             close(fd)
+            descriptorIsOpen = false
             Failpoint.trigger("after-temporary-flush")
 
             if FileManager.default.fileExists(atPath: destination.path) {
@@ -200,7 +205,7 @@ public actor FileRepository {
             guard verified == bytes else { throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: "verification failed") }
             return .saved(try writeMetadata(for: destination, hash: Hashing.sha256(verified)))
         } catch {
-            close(fd)
+            if descriptorIsOpen { close(fd) }
             if removeTemporaryOnFailure { try? FileManager.default.removeItem(at: temporary) }
             throw error
         }

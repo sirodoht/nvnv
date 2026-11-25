@@ -106,6 +106,33 @@ struct FileCoreTests {
         }
     }
 
+    @Test func failedReplacementDoesNotCloseAnUnrelatedDescriptor() async throws {
+        try await withTemporaryDirectory { root in
+            let initialRepository = FileRepository(libraryURL: root)
+            guard case .saved(let metadata) = try await initialRepository.create(filename: "A.txt", body: "old") else {
+                Issue.record("create unexpectedly conflicted"); return
+            }
+            // The hook runs after the temporary file's descriptor is closed.
+            // A descriptor opened here normally reuses that number, so a second
+            // close in the failure path would close this unrelated file.
+            let unrelated = OpenedDescriptor()
+            let bystander = root.appendingPathComponent("A.txt").path
+            let repository = FileRepository(libraryURL: root) {
+                unrelated.value = open(bystander, O_RDONLY)
+                throw NVNVError.fileOperation(path: "A.txt", reason: "injected failure")
+            }
+            let note = Note(title: "A", body: "app", filename: "A.txt", lastSavedHash: metadata.hash)
+
+            await #expect(throws: NVNVError.self) { _ = try await repository.save(note: note) }
+
+            #expect(unrelated.value >= 0)
+            #expect(fcntl(unrelated.value, F_GETFD) != -1)
+            close(unrelated.value)
+            #expect(try String(contentsOf: root.appendingPathComponent("A.txt"), encoding: .utf8) == "old")
+            #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["A.txt"])
+        }
+    }
+
     @Test func atomicWriterPreservesDestinationMetadata() async throws {
         try await withTemporaryDirectory { root in
             let repository = FileRepository(libraryURL: root)
@@ -655,6 +682,10 @@ struct FileCoreTests {
             #expect(loaded == settings)
         }
     }
+}
+
+private final class OpenedDescriptor: @unchecked Sendable {
+    var value: Int32 = -1
 }
 
 private func setModificationTime(of url: URL, seconds: Int64, nanoseconds: Int64) throws {

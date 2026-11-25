@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Stop a failed note save from closing an unrelated open file, which could
+  affect the search cache or the library lock.
 - Allow renaming a note to a different capitalization of its own title instead
   of proposing a numbered duplicate.
 - Create library windows at their saved frames before showing them, eliminating
