@@ -41,7 +41,9 @@ final class AppModel {
     var isIndexing = false
     var scanIssues: [ScanIssue] = []
     var errorMessage: String?
-    var transientMessage: String?
+    /// A brief notice shown in the status line. It clears itself.
+    private(set) var transientMessage: String?
+    var transientMessageDuration = Duration.seconds(6)
     var conflict: Conflict? {
         didSet { isConflictPresented = conflict != nil }
     }
@@ -123,6 +125,7 @@ final class AppModel {
     private var automaticSelectionSuppressedQuery: String?
     private var navigationHistory: [(String, Set<UUID>)] = []
     private var librarySessions: [String: LibrarySession] = [:]
+    private var transientMessageTask: Task<Void, Never>?
     private var activeNoteOperations = 0 {
         didSet { if activeNoteOperations < oldValue { completedNoteOperations &+= 1 } }
     }
@@ -455,7 +458,39 @@ final class AppModel {
         renameRequest = nil
         editorCommand = nil
         errorMessage = nil
+        dismissTransientMessage()
+    }
+
+    private func showTransientMessage(_ message: String) {
+        transientMessageTask?.cancel()
+        transientMessage = message
+        let duration = transientMessageDuration
+        transientMessageTask = Task { [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            self?.transientMessage = nil
+        }
+    }
+
+    func dismissTransientMessage() {
+        transientMessageTask?.cancel()
+        transientMessageTask = nil
         transientMessage = nil
+    }
+
+    /// Only the note on screen is announced. Changes to other notes are
+    /// routine wherever a sync service writes into the library folder.
+    private func announceExternalChange(to note: Note) {
+        guard selectedNote?.id == note.id else { return }
+        showTransientMessage("“\(note.title)” changed outside nvnv. Its undo history was cleared.")
+    }
+
+    static func recoveryMessage(for titles: [String]) -> String? {
+        switch titles.count {
+        case 0: nil
+        case 1: "Recovered “\(titles[0])” after an interrupted save."
+        default: "Recovered \(titles.count) notes after an interrupted save."
+        }
     }
 
     func resetSettings() async {
@@ -1912,7 +1947,7 @@ final class AppModel {
                     reconciled.append(disk)
                     invalidateUndoHistory(for: disk.id)
                     baseBodies[disk.id] = disk.body
-                    transientMessage = "“\(disk.title)” changed outside nvnv. Its undo history was cleared."
+                    announceExternalChange(to: disk)
                 }
             }
             let scannedFilenames = Set(scan.notes.map(\.filename))
@@ -2010,7 +2045,7 @@ final class AppModel {
                     upsertsByID[app.id] = disk
                     invalidateUndoHistory(for: app.id)
                     baseBodies[app.id] = disk.body
-                    transientMessage = "“\(disk.title)” changed outside nvnv. Its undo history was cleared."
+                    announceExternalChange(to: disk)
                 }
             }
 
@@ -2077,7 +2112,6 @@ final class AppModel {
                             try await journal.remove(entry.id)
                             forgetJournalEntry(entry.id, for: noteID)
                             recovered.append(notes[index])
-                            transientMessage = "Recovered “\(notes[index].title)” after an interrupted save."
                         case .conflict(let data, let hash):
                             presentConflict(makeConflict(note: notes[index], data: data, hash: hash))
                         }
@@ -2097,6 +2131,10 @@ final class AppModel {
             staleSearchDocumentIDs.removeAll()
             recomputeDuplicateTitleKeys()
         } catch { errorMessage = error.localizedDescription }
+        // Reported once, and without interrupting the user for safe replays.
+        if let message = Self.recoveryMessage(for: recovered.map(\.title)) {
+            showTransientMessage(message)
+        }
         return recovered
     }
 

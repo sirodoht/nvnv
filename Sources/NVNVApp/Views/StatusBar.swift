@@ -8,7 +8,7 @@ struct StatusBar: View {
     @State private var isShowingScanIssues = false
 
     var body: some View {
-        if model.scanIssueSummary != nil {
+        if model.scanIssueSummary != nil || model.transientMessage != nil {
             HStack(spacing: 8) {
                 if let summary = model.scanIssueSummary {
                     Button { isShowingScanIssues = true } label: {
@@ -20,6 +20,13 @@ struct StatusBar: View {
                     .popover(isPresented: $isShowingScanIssues, arrowEdge: .top) {
                         ScanIssueList(model: model)
                     }
+                }
+                if let message = model.transientMessage {
+                    Text(message)
+                        .foregroundStyle(.secondary)
+                        .truncationMode(.middle)
+                        .help(message)
+                        .onTapGesture { model.dismissTransientMessage() }
                 }
                 Spacer(minLength: 0)
             }

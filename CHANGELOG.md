@@ -23,6 +23,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Show the brief notices for a note recovered after an interrupted save and
+  for the open note changing outside nvnv, which were prepared but never
+  displayed.
 - Fix a crash, and a newly created note losing its selection, when a note
   was created while nvnv was rescanning the library folder.
 - Dim note list menu items that cannot be used: Rename and Show in Finder

@@ -922,6 +922,54 @@ struct AppModelConflictTests {
         await model.forgetLibrary()
     }
 
+    @Test func externalChangeToTheOpenNoteIsAnnouncedBriefly() async throws {
+        let root = try makeLibrary(["A.txt": "alpha", "B.txt": "beta"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.transientMessageDuration = .milliseconds(150)
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+        try await Task.sleep(for: .milliseconds(700))
+        let a = try #require(model.notes.first { $0.filename == "A.txt" })
+        model.select([a.id])
+
+        // A note that is not on screen changes silently.
+        try Data("beta changed".utf8).write(to: root.appendingPathComponent("B.txt"))
+        await model.reconcileExternalChanges(.init(paths: [], requiresFullRescan: true))
+        #expect(model.notes.first { $0.filename == "B.txt" }?.body == "beta changed")
+        #expect(model.transientMessage == nil)
+
+        try Data("alpha changed".utf8).write(to: root.appendingPathComponent("A.txt"))
+        await model.reconcileExternalChanges(.init(paths: [], requiresFullRescan: true))
+        #expect(model.transientMessage == "“A” changed outside nvnv. Its undo history was cleared.")
+
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(model.transientMessage == nil)
+        await model.forgetLibrary()
+    }
+
+    @Test func startupRecoveryIsAnnouncedOnce() async throws {
+        let root = try makeLibrary(["A.txt": "disk body"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scanned = try #require(
+            LibraryScanner().scan(directory: root, recognizedExtensions: ["txt"]).notes.first
+        )
+        let journal = try RecoveryJournal(
+            directory: root.appendingPathComponent(".nvnv/journal", isDirectory: true)
+        )
+        try await journal.record(JournalEntry(
+            noteID: scanned.id, kind: .edit, baseHash: scanned.lastSavedHash,
+            filename: scanned.filename, intendedFilename: scanned.filename,
+            body: "recovered", revision: 1
+        ))
+        let model = makeModel()
+        await model.openLibrary(root, confirmedAuxiliaryCreation: true)
+
+        #expect(model.transientMessage == "Recovered “A” after an interrupted save.")
+        #expect(AppModel.recoveryMessage(for: []) == nil)
+        #expect(AppModel.recoveryMessage(for: ["A", "B"]) == "Recovered 2 notes after an interrupted save.")
+        await model.forgetLibrary()
+    }
+
     private func makeModel() -> AppModel {
         let suite = "nvnv-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
