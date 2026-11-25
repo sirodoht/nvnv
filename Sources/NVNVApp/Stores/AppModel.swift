@@ -343,6 +343,9 @@ final class AppModel {
 
     private func endLibraryTransition() {
         libraryTransitionInProgress = false
+        // Restore the incoming library's window before native move/resize
+        // callbacks can record the outgoing library's frame into its settings.
+        windowCoordinator?.synchronizeWindow(for: self)
         refreshSearch()
         // Watcher events are suppressed during preparation, including failed
         // opens. Rescan the surviving/installed library to close that gap.

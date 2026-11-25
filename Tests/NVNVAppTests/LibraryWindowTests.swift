@@ -134,6 +134,188 @@ struct LibraryWindowTests {
         for model in relaunched.models { relaunched.didClose(model) }
     }
 
+    @Test func nativeWindowFramesAreCapturedOnQuitAndRestoredPerLibrary() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let coordinator = fixture.coordinator
+        let a = coordinator.makeModel()
+        await coordinator.open(fixture.a, from: a, inNewWindow: false)
+        await coordinator.open(fixture.b, from: a, inNewWindow: true)
+        let b = try #require(coordinator.models.first { $0.libraryURL == fixture.b })
+        let windowA = makeWindow()
+        let windowB = makeWindow()
+        defer { closeWindows([windowA, windowB]) }
+        coordinator.attach(windowA, to: a)
+        coordinator.attach(windowB, to: b)
+
+        // Suppress notifications to exercise the final native-frame capture,
+        // rather than relying on the model having received the last movement.
+        windowA.delegate = nil
+        windowB.delegate = nil
+        windowA.setFrame(nativeFrame(offset: 20), display: false)
+        windowB.setFrame(nativeFrame(offset: 110), display: false)
+        let frameA = windowA.frame
+        let frameB = windowB.frame
+        try await coordinator.prepareForQuit()
+        for model in coordinator.models { coordinator.didClose(model) }
+
+        let relaunched = LibraryWindowCoordinator(userDefaults: fixture.defaults)
+        let initial = relaunched.makeModel()
+        await relaunched.restoreWorkspace(into: initial)
+        let restoredA = try #require(relaunched.models.first { $0.libraryURL == fixture.a })
+        let restoredB = try #require(relaunched.models.first { $0.libraryURL == fixture.b })
+        let reopenedA = makeWindow()
+        let reopenedB = makeWindow()
+        defer { closeWindows([reopenedA, reopenedB]) }
+        relaunched.attach(reopenedA, to: restoredA)
+        relaunched.attach(reopenedB, to: restoredB)
+        #expect(reopenedA.frame == frameA)
+        #expect(reopenedB.frame == frameB)
+        try await relaunched.prepareForQuit()
+        for model in relaunched.models { relaunched.didClose(model) }
+    }
+
+    @Test func nativeMovementBeforeRestorationCannotReplaceSavedFrame() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let coordinator = fixture.coordinator
+        let model = coordinator.makeModel()
+        await coordinator.open(fixture.a, from: model, inNewWindow: false)
+        let stored = nativeFrame(offset: 110)
+        model.windowFrame = LibraryWindowFrame(x: stored.minX, y: stored.minY,
+                                              width: stored.width, height: stored.height)
+        let window = makeWindow()
+        defer { closeWindows([window]) }
+        let controller = LibraryWindowController(window: window, model: model, coordinator: coordinator)
+        // SwiftUI may move or resize a newly created window before its library
+        // attachment gets a chance to apply the stored layout.
+        controller.windowDidMove(Notification(name: NSWindow.didMoveNotification, object: window))
+        controller.windowDidResize(Notification(name: NSWindow.didResizeNotification, object: window))
+        controller.synchronize()
+        #expect(window.frame == stored)
+        try await fixture.closeAll()
+    }
+
+    @Test func firstPresentationUsesEachLibrarysSavedFrameWithoutAPlaceholderWindow() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let original = fixture.coordinator.makeModel()
+        await fixture.coordinator.open(fixture.a, from: original, inNewWindow: false)
+        let frameA = nativeFrame(offset: 20)
+        original.windowFrame = LibraryWindowFrame(x: frameA.minX, y: frameA.minY,
+                                                  width: frameA.width, height: frameA.height)
+        await fixture.coordinator.open(fixture.b, from: original, inNewWindow: true)
+        let second = try #require(fixture.coordinator.models.first { $0.libraryURL == fixture.b })
+        let frameB = nativeFrame(offset: 110)
+        second.windowFrame = LibraryWindowFrame(x: frameB.minX, y: frameB.minY,
+                                                width: frameB.width, height: frameB.height)
+        try await fixture.closeAll()
+
+        let relaunched = LibraryWindowCoordinator(userDefaults: fixture.defaults)
+        var windows: [URL: PresentationWindow] = [:]
+        defer { closeWindows(Array(windows.values)) }
+        relaunched.makeWindow = { model in
+            // No placeholder window may be constructed while libraries load.
+            #expect(model.libraryURL != nil)
+            #expect(!model.isSwitchingLibrary)
+            let window = PresentationWindow(contentRect: nativeFrame(offset: 0),
+                                            styleMask: [.titled, .closable, .resizable],
+                                            backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            if let url = model.libraryURL { windows[url] = window }
+            return window
+        }
+        let initial = relaunched.makeModel()
+        #expect(windows.isEmpty)
+        await relaunched.restoreWorkspace(into: initial)
+        relaunched.show(initial)
+        #expect(windows.count == 2)
+        #expect(windows[fixture.a]?.framesAtPresentation == [frameA])
+        #expect(windows[fixture.b]?.framesAtPresentation == [frameB])
+        #expect(windows.values.allSatisfy { $0.alphaValue == 1 })
+        // Bringing an existing library forward reuses its native window.
+        relaunched.show(initial)
+        #expect(windows.count == 2)
+        try await relaunched.prepareForQuit()
+        for model in relaunched.models { relaunched.didClose(model) }
+    }
+
+    @Test func failedStartupOpenCanPresentWelcomeAndItsError() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let coordinator = fixture.coordinator
+        let model = coordinator.makeModel()
+        let window = PresentationWindow(contentRect: nativeFrame(offset: 0),
+                                        styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { closeWindows([window]) }
+        coordinator.makeWindow = { _ in window }
+        await coordinator.open(fixture.root.appendingPathComponent("missing"), from: model, inNewWindow: false)
+        #expect(model.errorMessage != nil)
+        coordinator.show(model)
+        #expect(window.framesAtPresentation.count == 1)
+        #expect(window.alphaValue == 1)
+        #expect(model.libraryURL == nil)
+        try await fixture.closeAll()
+    }
+
+    @Test func nativeWindowsRouteFocusAndCanCloseAndReopen() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let coordinator = fixture.coordinator
+        var windows: [PresentationWindow] = []
+        defer { closeWindows(windows) }
+        coordinator.makeWindow = { _ in
+            let window = PresentationWindow(contentRect: nativeFrame(offset: 0),
+                                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            windows.append(window)
+            return window
+        }
+        coordinator.newWindow()
+        let first = try #require(coordinator.models.first)
+        let window = try #require(windows.first)
+        window.delegate?.windowDidBecomeKey?(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+        #expect(coordinator.focusedModel === first)
+        window.delegate?.windowDidResignKey?(Notification(name: NSWindow.didResignKeyNotification, object: window))
+        #expect(coordinator.focusedModel == nil)
+        window.performClose(nil)
+        let deadline = Date().addingTimeInterval(2)
+        while !coordinator.models.isEmpty, Date() < deadline { await Task.yield() }
+        #expect(coordinator.models.isEmpty)
+        coordinator.newWindow()
+        #expect(coordinator.models.count == 1)
+        #expect(coordinator.models.first !== first)
+        #expect(windows.count == 2)
+        #expect(windows.last?.framesAtPresentation.count == 1)
+        try await fixture.closeAll()
+    }
+
+    @Test func attachedWindowRestoresFrameAsSoonAsLibrarySwitchFinishes() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let coordinator = fixture.coordinator
+        let model = coordinator.makeModel()
+        await coordinator.open(fixture.a, from: model, inNewWindow: false)
+        let entryA = try #require(model.activeLibrary)
+        let window = makeWindow()
+        defer { closeWindows([window]) }
+        coordinator.attach(window, to: model)
+        window.setFrame(nativeFrame(offset: 20), display: false)
+        window.delegate?.windowDidMove?(Notification(name: NSWindow.didMoveNotification, object: window))
+        let frameA = window.frame
+        await coordinator.open(fixture.b, from: model, inNewWindow: false)
+        window.setFrame(nativeFrame(offset: 110), display: false)
+        window.delegate?.windowDidMove?(Notification(name: NSWindow.didMoveNotification, object: window))
+        let frameB = window.frame
+        let entryB = try #require(model.activeLibrary)
+        await model.switchLibrary(to: entryA)
+        #expect(window.frame == frameA)
+        await model.switchLibrary(to: entryB)
+        #expect(window.frame == frameB)
+        try await fixture.closeAll()
+    }
+
     @Test func failedQuitStillSavesOtherLibrariesAndUnfreezesEveryWindow() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
@@ -188,6 +370,12 @@ struct LibraryWindowTests {
         let coordinator = fixture.coordinator
         let original = coordinator.makeModel()
         await coordinator.open(fixture.a, from: original, inNewWindow: false)
+        let originalWindow = makeWindow()
+        defer { closeWindows([originalWindow]) }
+        coordinator.attach(originalWindow, to: original)
+        originalWindow.setFrame(nativeFrame(offset: 110), display: false)
+        originalWindow.delegate?.windowDidMove?(Notification(name: NSWindow.didMoveNotification, object: originalWindow))
+        let frame = originalWindow.frame
         original.userEnteredSearchText("alpha")
         try await Task.sleep(for: .milliseconds(180))
         original.select([try #require(original.notes.first?.id)])
@@ -198,6 +386,10 @@ struct LibraryWindowTests {
         coordinator.didClose(original)
         await coordinator.open(fixture.a, from: b, inNewWindow: true)
         let reopened = try #require(coordinator.models.first { $0.libraryURL == fixture.a })
+        let reopenedWindow = makeWindow()
+        defer { closeWindows([reopenedWindow]) }
+        coordinator.attach(reopenedWindow, to: reopened)
+        #expect(reopenedWindow.frame == frame)
         try await Task.sleep(for: .milliseconds(180))
         #expect(reopened !== original)
         #expect(reopened.query == "alpha")
@@ -259,6 +451,36 @@ struct LibraryWindowTests {
         await coordinator.open(fixture.c, from: a, inNewWindow: false)
         #expect(coordinator.settingsModel == nil)
         try await fixture.closeAll()
+    }
+
+    private func nativeFrame(offset: CGFloat) -> NSRect {
+        let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        return NSRect(x: visible.minX + offset, y: visible.minY + 20, width: 480, height: 620)
+    }
+
+    private final class PresentationWindow: NSWindow {
+        var framesAtPresentation: [NSRect] = []
+
+        override func makeKeyAndOrderFront(_ sender: Any?) {
+            // Inspect the exact frame at the production presentation boundary,
+            // without putting test windows on the user's desktop.
+            framesAtPresentation.append(frame)
+        }
+    }
+
+    private func makeWindow() -> NSWindow {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: nativeFrame(offset: 0), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    private func closeWindows(_ windows: [NSWindow]) {
+        for window in windows {
+            window.delegate = nil
+            window.close()
+        }
     }
 
     @MainActor

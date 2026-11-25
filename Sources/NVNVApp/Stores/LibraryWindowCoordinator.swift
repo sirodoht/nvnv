@@ -32,6 +32,7 @@ final class LibraryCatalogStore {
 final class LibraryWindowCoordinator {
     let catalogStore: LibraryCatalogStore
     private(set) var models: [AppModel] = []
+    private(set) var focusedModel: AppModel?
     var settingsLibraryID: UUID?
     var settingsModel: AppModel? {
         guard let settingsLibraryID else { return nil }
@@ -45,7 +46,7 @@ final class LibraryWindowCoordinator {
     @ObservationIgnored private var openingPaths: Set<String> = []
     @ObservationIgnored private var hasRestoredWorkspace = false
     @ObservationIgnored private var isRestoringWorkspace = false
-    @ObservationIgnored var presentWindow: ((UUID?) -> Void)?
+    @ObservationIgnored var makeWindow: ((AppModel) -> NSWindow)?
 
     init(userDefaults: UserDefaults = .standard) {
         let store = LibraryCatalogStore(userDefaults: userDefaults)
@@ -146,19 +147,25 @@ final class LibraryWindowCoordinator {
     }
 
     func show(_ model: AppModel) {
-        if let window = controllers[model.windowID]?.window {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            presentWindow?(model.activeLibrary?.id)
+        if controllers[model.windowID] == nil, let window = makeWindow?(model) {
+            // The factory must return an unshown window. Attach restores its
+            // frame synchronously, before its first order-front operation.
+            attach(window, to: model)
         }
+        controllers[model.windowID]?.present()
         model.focusSearch()
+    }
+
+    func newWindow() {
+        guard !isQuitting else { return }
+        show(makeModel())
     }
 
     func attach(_ window: NSWindow, to model: AppModel) {
         if let controller = controllers[model.windowID], let existing = controller.window {
             if existing !== window {
-                // A presentation request can race the initial scene's binding
-                // update. Keep the original window and dismiss only the duplicate.
+                // Keep one native window per session even if a caller tries
+                // to attach a second window to the same model.
                 existing.makeKeyAndOrderFront(nil)
                 window.close()
             } else {
@@ -172,12 +179,22 @@ final class LibraryWindowCoordinator {
     }
 
     func focused(_ model: AppModel) {
+        focusedModel = model
         guard let url = model.libraryURL else { return }
         catalogStore.catalog.activate(url)
         catalogStore.persist()
     }
 
+    func unfocused(_ model: AppModel) {
+        if focusedModel === model { focusedModel = nil }
+    }
+
+    func synchronizeWindow(for model: AppModel) {
+        controllers[model.windowID]?.synchronize()
+    }
+
     func didClose(_ model: AppModel) {
+        unfocused(model)
         if let url = model.libraryURL { sessions[url.path] = model.sessionSnapshot() }
         if !isQuitting, let id = model.activeLibrary?.id {
             openLibraryIDs.removeAll { $0 == id }
@@ -192,6 +209,9 @@ final class LibraryWindowCoordinator {
 
     func prepareForQuit() async throws {
         guard !isQuitting else { return }
+        // Capture native frames before freezing sessions, so the final settings
+        // flush doesn't depend on the last move/resize notification arriving.
+        for controller in controllers.values { controller.recordFrame() }
         isQuitting = true
         var errors: [String] = []
         // Freeze every session and attempt every flush, even if another fails.

@@ -2,8 +2,7 @@ import SwiftUI
 
 struct NVNVCommands: Commands {
     let coordinator: LibraryWindowCoordinator
-    @FocusedValue(AppModel.self) private var focusedModel
-    @Environment(\.openWindow) private var openWindow
+    private var focusedModel: AppModel? { coordinator.focusedModel }
     @Environment(\.openSettings) private var openSettings
 
     var body: some Commands {
@@ -16,7 +15,7 @@ struct NVNVCommands: Commands {
             .disabled(focusedModel?.libraryURL == nil || coordinator.isQuitting)
         }
         CommandGroup(replacing: .newItem) {
-            Button("New Library Window…") { openWindow(id: "library") }
+            Button("New Library Window…") { coordinator.newWindow() }
                 .keyboardShortcut("n")
                 .disabled(coordinator.isQuitting)
             if let model = focusedModel {
@@ -34,7 +33,7 @@ struct NVNVCommands: Commands {
                         .disabled(model.isSwitchingLibrary)
                 }
             } else {
-                Button("Open Library…") { openWindow(id: "library") }
+                Button("Open Library…") { coordinator.newWindow() }
                     .keyboardShortcut("o")
                     .disabled(coordinator.isQuitting)
             }

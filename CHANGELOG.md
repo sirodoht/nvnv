@@ -21,6 +21,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Create library windows at their saved frames before showing them, eliminating
+  the centered startup window and visible movement during restoration.
+- Capture each library's final window size and position on quit, and restore its
+  frame before accepting window movement after a library switch.
 - Failed library opens preserve the current library's settings and context.
 - Library switches drain pending writes and isolate old asynchronous callbacks.
 - Read-only library sessions no longer persist settings or schedule cache writes.

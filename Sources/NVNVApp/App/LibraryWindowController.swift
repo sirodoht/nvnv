@@ -1,11 +1,10 @@
 import AppKit
 import NVNVCore
 
-/// Interposes only the library lifecycle callbacks and forwards SwiftUI's other
-/// window delegate messages. SwiftUI remains responsible for creating windows.
+/// Owns a library's native window and restores its frame before presentation.
 @MainActor
 final class LibraryWindowController: NSObject, NSWindowDelegate {
-    weak var window: NSWindow?
+    let window: NSWindow?
     private let model: AppModel
     private weak var coordinator: LibraryWindowCoordinator?
     // NSObject's delegate introspection is nonisolated. This reference is
@@ -39,17 +38,29 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
     func synchronize() {
         guard let window else { return }
         window.title = model.activeLibrary?.name ?? "nvnv"
-        guard model.libraryURL != nil, appliedSessionID != model.librarySessionID else { return }
+        guard model.libraryURL != nil, !model.isSwitchingLibrary,
+              appliedSessionID != model.librarySessionID else { return }
         appliedSessionID = model.librarySessionID
         if window.styleMask.contains(.fullScreen) {
             pendingNormalFrame = model.windowFrame
         } else {
             applyFrame(model.windowFrame, to: window)
         }
-        if window.styleMask.contains(.fullScreen) != model.windowIsFullScreen {
+        if window.isVisible, window.styleMask.contains(.fullScreen) != model.windowIsFullScreen {
             window.toggleFullScreen(nil)
         }
+        recordFrame()
         if window.isKeyWindow { coordinator?.focused(model) }
+    }
+
+    func present() {
+        guard let window else { return }
+        synchronize()
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        if !changingFullScreen, window.styleMask.contains(.fullScreen) != model.windowIsFullScreen {
+            window.toggleFullScreen(nil)
+        }
     }
 
     private func applyFrame(_ stored: LibraryWindowFrame?, to window: NSWindow) {
@@ -66,8 +77,9 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         applyingLayout = false
     }
 
-    private func recordFrame() {
+    func recordFrame() {
         guard !applyingLayout, !changingFullScreen, !model.isSwitchingLibrary,
+              appliedSessionID == model.librarySessionID,
               model.libraryURL != nil, let window, !window.styleMask.contains(.fullScreen) else { return }
         let frame = window.frame
         let value = LibraryWindowFrame(x: frame.origin.x, y: frame.origin.y,
@@ -108,6 +120,12 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
     func windowDidBecomeKey(_ notification: Notification) {
         originalDelegate?.windowDidBecomeKey?(notification)
         coordinator?.focused(model)
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        originalDelegate?.windowDidResignKey?(notification)
+        coordinator?.unfocused(model)
+        if !model.isSwitchingLibrary { Task { try? await model.flushAll() } }
     }
 
     func windowDidResize(_ notification: Notification) {
