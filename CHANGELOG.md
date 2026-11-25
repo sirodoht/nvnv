@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Save edits in libraries on exFAT, FAT, and network volumes that cannot swap
+  files atomically, instead of failing with "Operation not supported".
 - Keep the explicitly selected note open and listed when an edit removes the
   text that matched the search, and open it on Return instead of creating a
   note named after the query.

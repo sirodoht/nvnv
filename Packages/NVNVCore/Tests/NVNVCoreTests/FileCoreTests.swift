@@ -106,6 +106,56 @@ struct FileCoreTests {
         }
     }
 
+    @Test func writerFallsBackToRenameWhereSwapIsUnsupported() async throws {
+        try await withTemporaryDirectory { root in
+            let initialRepository = FileRepository(libraryURL: root)
+            guard case .saved(let created) = try await initialRepository.create(filename: "A.txt", body: "old") else {
+                Issue.record("create unexpectedly conflicted"); return
+            }
+            let file = root.appendingPathComponent("A.txt")
+            let repository = FileRepository(libraryURL: root, assumesSwapUnsupported: true) {}
+            var note = Note(title: "A", body: "app", filename: "A.txt", lastSavedHash: created.hash)
+
+            guard case .saved(let saved) = try await repository.save(note: note) else {
+                Issue.record("save unexpectedly conflicted"); return
+            }
+            #expect(try String(contentsOf: file, encoding: .utf8) == "app")
+            #expect(saved.hash == Hashing.sha256(text: "app"))
+
+            // An external edit made before the save is still a conflict.
+            try Data("external".utf8).write(to: file)
+            note.lastSavedHash = saved.hash
+            note.body = "app again"
+            guard case .conflict(let data, _) = try await repository.save(note: note) else {
+                Issue.record("external change was overwritten"); return
+            }
+            #expect(String(data: data, encoding: .utf8) == "external")
+            #expect(try String(contentsOf: file, encoding: .utf8) == "external")
+            #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["A.txt"])
+        }
+    }
+
+    @Test func renameFallbackDetectsChangeAfterItsInitialComparison() async throws {
+        try await withTemporaryDirectory { root in
+            let initialRepository = FileRepository(libraryURL: root)
+            guard case .saved(let metadata) = try await initialRepository.create(filename: "A.txt", body: "old") else {
+                Issue.record("create unexpectedly conflicted"); return
+            }
+            let file = root.appendingPathComponent("A.txt")
+            let repository = FileRepository(libraryURL: root, assumesSwapUnsupported: true) {
+                try Data("late external".utf8).write(to: file)
+            }
+            let note = Note(title: "A", body: "app", filename: "A.txt", lastSavedHash: metadata.hash)
+
+            guard case .conflict(let data, _) = try await repository.save(note: note) else {
+                Issue.record("late external change was overwritten"); return
+            }
+            #expect(String(data: data, encoding: .utf8) == "late external")
+            #expect(try String(contentsOf: file, encoding: .utf8) == "late external")
+            #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["A.txt"])
+        }
+    }
+
     @Test func failedReplacementDoesNotCloseAnUnrelatedDescriptor() async throws {
         try await withTemporaryDirectory { root in
             let initialRepository = FileRepository(libraryURL: root)

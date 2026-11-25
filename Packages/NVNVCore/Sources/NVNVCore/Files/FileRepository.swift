@@ -20,15 +20,22 @@ public struct FileWriteMetadata: Sendable {
 public actor FileRepository {
     private let libraryURL: URL
     private let beforeAtomicReplacement: (@Sendable () throws -> Void)?
+    /// Test seam: behave as a volume that cannot swap two files atomically.
+    private let assumesSwapUnsupported: Bool
 
     public init(libraryURL: URL) {
         self.libraryURL = libraryURL
         beforeAtomicReplacement = nil
+        assumesSwapUnsupported = false
     }
 
-    init(libraryURL: URL, beforeAtomicReplacement: @escaping @Sendable () throws -> Void) {
+    init(
+        libraryURL: URL, assumesSwapUnsupported: Bool = false,
+        beforeAtomicReplacement: @escaping @Sendable () throws -> Void
+    ) {
         self.libraryURL = libraryURL
         self.beforeAtomicReplacement = beforeAtomicReplacement
+        self.assumesSwapUnsupported = assumesSwapUnsupported
     }
 
     public func create(filename: String, body: String, lineEnding: LineEnding = .lf) throws -> FileWriteResult {
@@ -166,32 +173,57 @@ public actor FileRepository {
             if FileManager.default.fileExists(atPath: destination.path) {
                 try preserveMetadata(from: destination, to: temporary)
                 try beforeAtomicReplacement?()
-                guard renamex_np(temporary.path, destination.path, UInt32(RENAME_SWAP)) == 0 else {
-                    if errno == ENOENT, expectedHash != nil {
-                        try? FileManager.default.removeItem(at: temporary)
-                        return .conflict(currentData: Data(), currentHash: "")
+                let swapError: Int32 = assumesSwapUnsupported
+                    ? ENOTSUP
+                    : (renamex_np(temporary.path, destination.path, UInt32(RENAME_SWAP)) == 0 ? 0 : errno)
+                if swapError == ENOTSUP {
+                    // exFAT, FAT, and some network volumes cannot swap two files.
+                    // Compare once more as late as possible, then replace with a
+                    // plain rename. This leaves a narrower guarantee than the
+                    // swap, which can restore a destination that changed late.
+                    if let expectedHash {
+                        guard let latest = try? Data(contentsOf: destination) else {
+                            try? FileManager.default.removeItem(at: temporary)
+                            return .conflict(currentData: Data(), currentHash: "")
+                        }
+                        let latestHash = Hashing.sha256(latest)
+                        if latestHash != expectedHash {
+                            try? FileManager.default.removeItem(at: temporary)
+                            return .conflict(currentData: latest, currentHash: latestHash)
+                        }
                     }
-                    throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(errno)))
-                }
-                removeTemporaryOnFailure = false
-                Failpoint.trigger("after-atomic-replacement")
+                    guard Darwin.rename(temporary.path, destination.path) == 0 else {
+                        throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(errno)))
+                    }
+                    Failpoint.trigger("after-atomic-replacement")
+                } else {
+                    guard swapError == 0 else {
+                        if swapError == ENOENT, expectedHash != nil {
+                            try? FileManager.default.removeItem(at: temporary)
+                            return .conflict(currentData: Data(), currentHash: "")
+                        }
+                        throw NVNVError.fileOperation(path: destination.lastPathComponent, reason: String(cString: strerror(swapError)))
+                    }
+                    removeTemporaryOnFailure = false
+                    Failpoint.trigger("after-atomic-replacement")
 
-                let displacedData = try Data(contentsOf: temporary)
-                let displacedHash = Hashing.sha256(displacedData)
-                if let expectedHash, displacedHash != expectedHash {
-                    guard renamex_np(temporary.path, destination.path, UInt32(RENAME_SWAP)) == 0 else {
-                        throw NVNVError.fileOperation(
-                            path: destination.lastPathComponent,
-                            reason: "the destination changed and could not be restored; its prior version remains at \(temporary.lastPathComponent)"
-                        )
+                    let displacedData = try Data(contentsOf: temporary)
+                    let displacedHash = Hashing.sha256(displacedData)
+                    if let expectedHash, displacedHash != expectedHash {
+                        guard renamex_np(temporary.path, destination.path, UInt32(RENAME_SWAP)) == 0 else {
+                            throw NVNVError.fileOperation(
+                                path: destination.lastPathComponent,
+                                reason: "the destination changed and could not be restored; its prior version remains at \(temporary.lastPathComponent)"
+                            )
+                        }
+                        removeTemporaryOnFailure = true
+                        try syncDirectory()
+                        try FileManager.default.removeItem(at: temporary)
+                        try syncDirectory()
+                        return .conflict(currentData: displacedData, currentHash: displacedHash)
                     }
-                    removeTemporaryOnFailure = true
-                    try syncDirectory()
                     try FileManager.default.removeItem(at: temporary)
-                    try syncDirectory()
-                    return .conflict(currentData: displacedData, currentHash: displacedHash)
                 }
-                try FileManager.default.removeItem(at: temporary)
             } else {
                 try beforeAtomicReplacement?()
                 guard Darwin.rename(temporary.path, destination.path) == 0 else {
