@@ -19,7 +19,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   forward when the same library is opened again.
 - Restoration of all open library windows on relaunch, with layout remembered
   per library and note commands routed to the focused window.
-
 - Named libraries with a picker, searchable Command-Shift-L switcher, and
   add, rename, and remove-from-list actions.
 - Restoration of each library's search, selection, and cursor positions when
@@ -62,9 +61,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   frame before accepting window movement after a library switch.
 - Show the full title of an automatically selected note in the search field as
   soon as the editor is clicked, instead of only after the first edit.
-- Failed library opens preserve the current library's settings and context.
-- Library switches drain pending writes and isolate old asynchronous callbacks.
-- Read-only library sessions no longer persist settings or schedule cache writes.
+- Keep the current library's settings and context when opening another library
+  fails.
+- Finish pending writes before switching libraries, and ignore late results from
+  the previous library's background work.
+- Stop read-only library sessions from saving settings or writing to the cache.
 - Stop a draft recovered after an interrupted save from staying in the recovery
   journal, and returning on a later launch, once its conflict is resolved.
 - Keep each note's identity when it is renamed outside nvnv and another file
