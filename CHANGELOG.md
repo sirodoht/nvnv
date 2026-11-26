@@ -60,9 +60,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the centered startup window and visible movement during restoration.
 - Capture each library's final window size and position on quit, and restore its
   frame before accepting window movement after a library switch.
+- Show the full title of an automatically selected note in the search field as
+  soon as the editor is clicked, instead of only after the first edit.
 - Failed library opens preserve the current library's settings and context.
 - Library switches drain pending writes and isolate old asynchronous callbacks.
 - Read-only library sessions no longer persist settings or schedule cache writes.
+- Stop a draft recovered after an interrupted save from staying in the recovery
+  journal, and returning on a later launch, once its conflict is resolved.
+- Keep each note's identity when it is renamed outside nvnv and another file
+  takes its old name, including when two files swap names.
+- Save a note's pending edits before renaming it, and keep reporting a conflict
+  when the file was changed outside nvnv, instead of the rename hiding it.
+- Update a note's excerpt in the note list after its body is cleared.
+- Keep a manually typed list marker, such as `- `, when Return is pressed on a
+  line with no list item above it, instead of deleting the marker.
 
 ## [1.5.0] - 2026-08-21
 
